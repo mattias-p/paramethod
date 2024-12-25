@@ -61,7 +61,7 @@ sub await {
 
 =item L<My::Command>
 
-=item L<My::SeqExecutor>
+=item L<My::SequentialExecutor>
 
 =back
 

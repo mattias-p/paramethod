@@ -16,7 +16,7 @@ Readonly my %command_types => (
     'My::Query' => sub {
         my ( $query ) = @_;
 
-        return Zonemaster::LDNS->new( $query->server_ip )->query( $query->name, $query->qtype );
+        return Zonemaster::LDNS->new( $query->server_ip )->query( $query->qname, $query->qtype );
     },
 );
 
