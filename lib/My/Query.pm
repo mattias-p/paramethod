@@ -2,14 +2,13 @@ package My::Query;
 use 5.016;
 use warnings;
 
-use Scalar::Util qw( blessed );
+use parent 'My::Command';
 
 use Class::Accessor;
 use base 'Class::Accessor';
 My::Query->mk_accessors( qw( server_ip name qtype ) );
 
-use overload q("") => \&str;
-use overload q(eq) => \&equals;
+use Scalar::Util qw( blessed );
 
 sub new {
     my ( $class, %args ) = @_;
@@ -21,31 +20,10 @@ sub new {
     }, $class;
 }
 
-sub equals {
-    my ( $self, $other ) = @_;
-
-    return
-         blessed( $other )
-      && $other->isa( 'Query' )
-      && $self->server_ip eq $other->server_ip
-      && $self->name eq $other->name
-      && $self->qtype eq $self->qtype;
-}
-
-sub str {
+sub arg_strings {
     my ( $self ) = @_;
 
-    return sprintf "%s %s %s %s", $self->command_type, $self->server_ip, $self->name, $self->qtype;
-}
-
-sub command_type {
-    return "query";
-}
-
-sub args {
-    my ( $self ) = @_;
-
-    return $self->server_ip, $self->name, $self->qtype;
+    return $self->server_ip, lc $self->name =~ s/(.)\.$/\1/r, uc $self->qtype;
 }
 
 1;

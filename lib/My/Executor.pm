@@ -1,54 +1,70 @@
+=head1 NAME
+
+My::Executor - An interface that abstracts command execution.
+
+=cut
+
 package My::Executor;
 use 5.016;
 use warnings;
 
-use My::Query;
-use Readonly;
-use Zonemaster::LDNS;
+=head1 DESCRIPTION
 
-Readonly my %command_types => (
-    query => sub {
-        my ( $server_addr, $name, $rrtype ) = @_;
+The My::Executor interface allows callers to execute commands, and it allows
+implementations to use different execution strategies.
 
-        return Zonemaster::LDNS->new( $server_addr )->query( $name, $rrtype );
-    },
-);
+The interface itself is not thread-safe, though it may abstract multi-threaded
+implementations.
 
-sub new {
-    my ( $class ) = @_;
+The interface does not include any constructors.
+Implementations are expected to provide constructors adapted to their own needs.
 
-    my $obj = {
-        _commands => [],
-        _cache => {},
-    };
+=head1 ABSTRACT METHODS
 
-    bless $obj, $class;
+=head2 submit()
 
-    return $obj;
-}
+Request the execution of a L<My::Command>.
+
+    $executor->submit( $command );
+
+Should never block.
+Does not need to be thread-safe.
+
+=cut
 
 sub submit {
-    my ( $self, $command ) = @_;
+    my ( $self ) = @_;
 
-    push @{ $self->{_commands} }, $command;
-
-    return;
+    die ref($self) . " must implement submit()";
 }
+
+=head2 await()
+
+Get the result of the next completed command.
+
+    my ( $command, $result ) = $executor->await();
+
+Should block until there is a completed command to report.
+Does not need to be thread-safe.
+
+=cut
 
 sub await {
     my ( $self ) = @_;
 
-    my $command = shift @{ $self->{_commands} };
-
-    if ( my $result = $self->{_cache}{$command} ) {
-        return $command, $result;
-    }
-
-    my $result = $command_types{$command->command_type}->( $command->args );
-
-    $self->{_cache}{$command} = $result;
-
-    return $command, $result;
+    die ref($self) . " must implement await()";
 }
+
+=head1 SEE ALSO
+
+=over 4
+
+=item L<My::Command>
+
+=item L<My::SeqExecutor>
+
+=back
+
+=cut
 
 1;
