@@ -30,10 +30,12 @@ sub block_on {
     my ( $executor, $bootstrap ) = @_;
 
     my %handlers;
+    my @ready;
 
     my $scheduler = {
         _executor => $executor,
         _handlers => \%handlers,
+        _ready    => \@ready,
     };
 
     bless $scheduler, 'My::Scheduler';
@@ -41,6 +43,11 @@ sub block_on {
     $bootstrap->( $scheduler );
 
     while ( %handlers ) {
+        while ( my $action = shift @ready ) {
+            my ( $command, $handler ) = @{ $item };
+            $handler->( $command, $command->result );
+        }
+
         my ( $command, $result ) = $executor->await;
 
         for my $handler ( @{ delete $handlers{$command} } ) {
@@ -65,6 +72,12 @@ sub block_on {
 
 sub submit {
     my ( $self, $command, $handler ) = @_;
+
+    if ( $command->isa( 'My::Ready' ) ) {
+        push @{ $self->{_ready} }, $command, $ready;
+
+        return;
+    }
 
     $self->{_handlers}{$command} //= [];
     push @{ $self->{_handlers}{$command} }, $handler;
