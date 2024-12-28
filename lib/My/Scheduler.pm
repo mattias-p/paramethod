@@ -29,29 +29,30 @@ our @EXPORT_OK = qw( block_on );
 sub block_on {
     my ( $executor, $bootstrap ) = @_;
 
-    my %handlers;
-    my @ready;
-
     my $scheduler = {
-        _executor => $executor,
-        _handlers => \%handlers,
-        _ready    => \@ready,
+        _executor     => $executor,
+        _cur_actionid => 0,
+        _num_actions  => 0,
+        _actions      => {},
+        _actionids    => {},
+        _ready        => [],
     };
 
     bless $scheduler, 'My::Scheduler';
 
     $bootstrap->( $scheduler );
 
-    while ( %handlers ) {
-        while ( my $action = shift @ready ) {
-            my ( $command, $handler ) = @{ $item };
-            $handler->( $command, $command->result );
+    while ( %{ $scheduler->{_actions} } ) {
+        while ( my $ready = shift @{ $scheduler->{_ready} } ) {
+            my ( $actionid, $result ) = @{ $ready };
+
+            $scheduler->_handle( $actionid, $result );
         }
 
-        my ( $command, $result ) = $executor->await;
+        my ( $command, $result ) = $scheduler->{_executor}->await;
 
-        for my $handler ( @{ delete $handlers{$command} } ) {
-            $handler->( $command, $result );
+        for my $actionid ( @{ delete $scheduler->{_actionids}{$command} } ) {
+            $scheduler->_handle( $actionid, $result );
         }
     }
 
@@ -71,18 +72,72 @@ sub block_on {
 =cut
 
 sub submit {
-    my ( $self, $command, $handler ) = @_;
+    my ( $self, $deps, $command, $handler ) = @_;
 
-    if ( $command->isa( 'My::Ready' ) ) {
-        push @{ $self->{_ready} }, $command, $ready;
+    my $actionid = $self->{_num_tasks}++;
+    $self->{_actionids}{$command} //= [];
+    push @{ $self->{_actionids}{$command} }, $actionid;
+
+    $self->{_actions}{$actionid} = {
+        liveness => 1,
+        rdeps    => [],
+        deps     => [@{ $deps }],
+        command  => $command,
+        handler  => $handler,
+        parent   => $self->{_cur_handler},
+    };
+
+    if ( @{ $deps } ) {
+        for my $dep ( @{ $deps } ) {
+            push @{ $self->{_actions}{$dep}{rdeps} }, $actionid;
+        }
 
         return;
     }
 
-    $self->{_handlers}{$command} //= [];
-    push @{ $self->{_handlers}{$command} }, $handler;
+    if ( $command->isa( 'My::Ready' ) ) {
+        push @{ $self->{_ready} }, $actionid;
+
+        return;
+    }
 
     $self->{_executor}->submit( $command );
+
+    return;
+}
+
+sub _handle {
+    my ( $self, $actionid, $result ) = @_;
+
+    $self->{_cur_actionid} = $actionid;
+
+    {
+        my $handler = $self->{_actions}{$actionid}{handler};
+        my $command = $self->{_actions}{$actionid}{command};
+        $handler->( $command, $result );
+    }
+
+    while ( $actionid ) {
+        my $action = $self->{_actions}{$actionid};
+
+        $action->{liveness}--;
+
+        if ( !$action->{liveness} ) {
+            for my $rdep_actionid ( @{ $action->{rdeps} } ) {
+                my $rdep_action = $self->{_actions}{$rdep_actionid};
+
+                delete $rdep_action->{deps}{$actionid};
+
+                if ( !%{ $rdep_action->{deps} } ) {
+                    push @{ $self->{_ready} }, $actionid;
+                }
+            }
+
+            delete $self->{_actions}{$actionid};
+        }
+
+        $actionid = $action->{parent};
+    }
 
     return;
 }

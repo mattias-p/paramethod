@@ -14,6 +14,7 @@ block_on(
         my $query = query( server_ip => '9.9.9.9', qname => 'iis.se.', qtype => 'a' );
 
         $scheduler->submit(
+            [],
             $query,
             sub {
                 my ( $command, $result ) = @_;
@@ -23,6 +24,7 @@ block_on(
         );
 
         $scheduler->submit(
+            [],
             $query,
             sub {
                 my ( $command, $result ) = @_;
