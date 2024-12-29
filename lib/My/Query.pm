@@ -37,8 +37,8 @@ sub query {
         croak "missing required argument: server_ip";
     }
 
-    if ( !defined $args{qname} ) {
-        croak "missing required argument: qname";
+    if ( !defined $args{qname} || $args{qname} eq '' ) {
+        croak "missing or emtpy argument: qname";
     }
 
     if ( !defined $args{qtype} ) {

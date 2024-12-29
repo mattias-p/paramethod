@@ -8,6 +8,7 @@ package My::Scheduler;
 use 5.016;
 use warnings;
 
+use Carp qw( croak );
 use Exporter 'import';
 
 our @EXPORT_OK = qw( block_on );
@@ -30,31 +31,19 @@ sub block_on {
     my ( $executor, $bootstrap ) = @_;
 
     my $scheduler = {
-        _executor     => $executor,
-        _cur_actionid => 0,
-        _num_actions  => 0,
-        _actions      => {},
-        _actionids    => {},
-        _ready        => [],
+        _executor    => $executor,
+        _num_actions => 0,
+        _cur_action  => 0,
+        _cur_task    => 0,
+        _actions     => {},
+        _pending     => [],
     };
 
     bless $scheduler, 'My::Scheduler';
 
     $bootstrap->( $scheduler );
 
-    while ( %{ $scheduler->{_actions} } ) {
-        while ( my $ready = shift @{ $scheduler->{_ready} } ) {
-            my ( $actionid, $result ) = @{ $ready };
-
-            $scheduler->_handle( $actionid, $result );
-        }
-
-        my ( $command, $result ) = $scheduler->{_executor}->await;
-
-        for my $actionid ( @{ delete $scheduler->{_actionids}{$command} } ) {
-            $scheduler->_handle( $actionid, $result );
-        }
-    }
+    $scheduler->_run();
 
     return;
 }
@@ -71,75 +60,225 @@ sub block_on {
 
 =cut
 
-sub submit {
+sub command {
     my ( $self, $deps, $command, $handler ) = @_;
 
-    my $actionid = $self->{_num_tasks}++;
-    $self->{_actionids}{$command} //= [];
-    push @{ $self->{_actionids}{$command} }, $actionid;
+    if ( ref $deps ne 'ARRAY' ) {
+        croak "deps argument to command() must be an arrayref";
+    }
+    if ( !blessed $command || !$command->isa( 'My::Command' ) ) {
+        croak "command argument to command() must be a My::Command";
+    }
+    if ( ref $handler ne 'CODE' ) {
+        croak "handler argument to command() must be a coderef";
+    }
 
-    $self->{_actions}{$actionid} = {
-        liveness => 1,
-        rdeps    => [],
-        deps     => [@{ $deps }],
-        command  => $command,
-        handler  => $handler,
-        parent   => $self->{_cur_handler},
-    };
+    return $self->_action(
+        $deps,
+        $handler,
+        task    => $self->{_cur_task},
+        command => $command,
+    );
+}
 
-    if ( @{ $deps } ) {
-        for my $dep ( @{ $deps } ) {
-            push @{ $self->{_actions}{$dep}{rdeps} }, $actionid;
+sub result {
+    my ( $self, $deps, $result, $handler ) = @_;
+
+    if ( ref $deps ne 'ARRAY' ) {
+        croak "deps argument to result() must be an arrayref";
+    }
+    if ( ref $handler ne 'CODE' ) {
+        croak "handler argument to result() must be a coderef";
+    }
+
+    return $self->_action(
+        $deps,
+        $handler,
+        task   => $self->{_cur_task},
+        result => $result,
+    );
+}
+
+sub task {
+    my ( $self, $deps, $bootstrap, $handler ) = @_;
+
+    if ( ref $deps ne 'ARRAY' ) {
+        croak "deps argument to task() must be an arrayref";
+    }
+    if ( ref $bootstrap ne 'CODE' ) {
+        croak "bootstrap argument to task() must be a coderef";
+    }
+    if ( ref $handler ne 'CODE' ) {
+        croak "handler argument to task() must be a coderef";
+    }
+
+    return $self->_action(
+        $deps,
+        $handler,
+        bootstrap  => $bootstrap,
+        results    => [],
+    );
+}
+
+sub emit {
+    my ( $self, $result ) = @_;
+
+    if ( $self->{_cur_task} == 0 ) {
+        croak "no active task";
+    }
+
+    my $task = $self->{_cur_task};
+    push @{ $self->{_actions}{$task}{results} }, $result;
+    push @{ $self->{_pending} },                 $task;
+
+    return;
+}
+
+sub _run {
+    my ( $self ) = @_;
+
+    while ( 1 ) {
+        while ( my $actionid = shift @{ $self->{_pending} } ) {
+            $self->_handle( $actionid );
         }
 
-        return;
+        last if !%{ $self->{_actions} };
+
+        my ( $actionid, undef, $result ) = $self->{_executor}->await;
+        $self->{_actions}{$actionid}{result} = $result;
+        push @{ $self->{_pending} }, $actionid;
     }
 
-    if ( $command->isa( 'My::Ready' ) ) {
-        push @{ $self->{_ready} }, $actionid;
+    return;
+}
 
-        return;
+sub _action {
+    my ( $self, $deps, $handler, %properties ) = @_;
+
+    my $actionid = ++$self->{_num_actions};
+
+    my %deps   = map { $_ => undef } @{$deps};
+    my $parent = $self->{_cur_action};
+
+    $self->{_actions}{$actionid} = {
+        task => $actionid,
+        %properties,
+        handler        => $handler,
+        num_dependents => 0,
+        num_children   => 0,
+        parent         => $parent,
+        dependencies   => [ sort keys %deps ],
+    };
+
+    if ( $parent ) {
+        $self->{_actions}{$parent}{num_children}++;
     }
 
-    $self->{_executor}->submit( $command );
+    for my $dependent ( keys %deps ) {
+        $self->{_actions}{$dependent}{num_dependents}++;
+    }
+
+    if ( !%deps ) {
+        $self->_start( $actionid );
+    }
+
+    return $actionid;
+}
+
+sub _start {
+    my ( $self, $actionid ) = @_;
+
+    my $action = $self->{_actions}{$actionid};
+
+    if ( exists $action->{result} ) {
+        push @{ $self->{_pending} }, $actionid;
+    }
+    elsif ( exists $action->{command} ) {
+        $self->{_executor}->submit( $actionid, $action->{command} );
+    }
+    elsif ( exists $action->{bootstrap} ) {
+        local $self->{_cur_action} = $actionid;
+        local $self->{_cur_task}   = $actionid;
+        $action->{bootstrap}( $self );
+    }
+    else {
+        croak "unreachable";
+    }
 
     return;
 }
 
 sub _handle {
-    my ( $self, $actionid, $result ) = @_;
+    my ( $self, $actionid ) = @_;
 
-    $self->{_cur_actionid} = $actionid;
-
-    {
-        my $handler = $self->{_actions}{$actionid}{handler};
-        my $command = $self->{_actions}{$actionid}{command};
-        $handler->( $command, $result );
+    if ( !exists $self->{_actions}{$actionid} ) {
+        croak "attempting to handle unknown action ($actionid)";
     }
 
-    while ( $actionid ) {
-        my $action = $self->{_actions}{$actionid};
+    my $action  = $self->{_actions}{$actionid};
+    my $handler = $action->{handler};
+    local $self->{_cur_task}   = $action->{task};
+    local $self->{_cur_action} = $actionid;
 
-        $action->{liveness}--;
+    if ( exists $action->{command} ) {
+        $handler->( $action->{command}, $action->{result} );
+    }
+    elsif ( exists $action->{bootstrap} ) {
+        while ( my $result = shift @{ $action->{results} } ) {
+            $handler->( $result );
+        }
+    }
+    else {
+        $handler->( $action->{result} );
+    }
 
-        if ( !$action->{liveness} ) {
-            for my $rdep_actionid ( @{ $action->{rdeps} } ) {
-                my $rdep_action = $self->{_actions}{$rdep_actionid};
+    $self->_finalize( $actionid );
 
-                delete $rdep_action->{deps}{$actionid};
+    return;
+}
 
-                if ( !%{ $rdep_action->{deps} } ) {
-                    push @{ $self->{_ready} }, $actionid;
-                }
+sub _finalize {
+    my ( $self, $actionid ) = @_;
+
+    my @actionids;
+    if ( !$self->_is_needed( $actionid) ) {
+        push @actionids, $actionid;
+    }
+
+    for my $actionid ( @actionids ) {
+        my $parent     = $self->{_actions}{$actionid}{parent};
+        my $dependents = $self->{_actions}{$actionid}{dependents};
+
+        if ( $parent != 0 ) {
+            $self->{_actions}{$parent}{num_children}--;
+            if ( !$self->_is_needed( $parent ) ) {
+                push @actionids, $parent;
             }
-
-            delete $self->{_actions}{$actionid};
         }
 
-        $actionid = $action->{parent};
+        for my $dependent ( @{$dependents} ) {
+            $self->{_actions}{$dependent}{num_dependents}--;
+            if ( !$self->_is_needed( $dependent ) ) {
+                push @actionids, $dependent;
+            }
+        }
+
+        delete $self->{_actions}{$actionid};
     }
 
     return;
+}
+
+sub _is_needed {
+    my ( $self, $actionid ) = @_;
+
+    if ( $actionid == 0 ) {
+        return 1;
+    }
+
+    my $action = $self->{_actions}{$actionid};
+
+    return $action->{num_children} > 0 || $action->{num_dependents} > 0 || @{ $action->{results} // [] }
 }
 
 1;

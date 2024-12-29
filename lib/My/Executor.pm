@@ -25,7 +25,7 @@ Implementations are expected to provide constructors adapted to their own needs.
 
 Request the execution of a L<My::Command>.
 
-    $executor->submit( $command );
+    $executor->submit( $id, $command );
 
 Should never block.
 Does not need to be thread-safe.
@@ -42,7 +42,7 @@ sub submit {
 
 Get the result of the next completed command.
 
-    my ( $command, $result ) = $executor->await();
+    my ( $id, $command, $result ) = $executor->await();
 
 Should block until there is a completed command to report.
 Does not need to be thread-safe.
