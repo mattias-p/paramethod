@@ -13,6 +13,7 @@ use warnings;
 use Carp qw( croak );
 use Class::Accessor;
 use Scalar::Util qw( blessed );
+use Data::Validate::IP qw( is_ip );
 
 use Exporter 'import';
 use base 'Class::Accessor';
@@ -33,12 +34,12 @@ Constructs a new instance.
 sub query {
     my ( %args ) = @_;
 
-    if ( !defined $args{server_ip} ) {
-        croak "missing required argument: server_ip";
+    if ( !defined $args{server_ip} || !is_ip( $args{server_ip} ) ) {
+        croak "argument must be an IP address: server_ip";
     }
 
-    if ( !defined $args{qname} || $args{qname} eq '' ) {
-        croak "missing or emtpy argument: qname";
+    if ( !defined $args{qname} || ref $args{qname} ne '' || $args{qname} eq '' ) {
+        croak "argument must be a non-empty scalar: qname";
     }
 
     if ( !defined $args{qtype} ) {
