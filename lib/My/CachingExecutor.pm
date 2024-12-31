@@ -72,7 +72,6 @@ Caches results from commands that were propagated to the inner executor, and
 reports cached results of commands that were merely registered.
 
 =cut
-use Data::Dumper;
 
 sub await {
     my ( $self ) = @_;

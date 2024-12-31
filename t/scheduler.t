@@ -50,7 +50,7 @@ subtest 'task' => sub {
                     $scheduler->emit( 456 );
                 };
 
-                $scheduler->submit( [], $bootstrap, $handler );
+                $scheduler->handle( $bootstrap, $handler );
             },
         );
 

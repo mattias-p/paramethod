@@ -45,7 +45,7 @@ sub block_on {
 
     my @results;
 
-    $scheduler->submit( [], $bootstrap, sub {
+    $scheduler->handle( $bootstrap, sub {
         my ( @result ) = @_;
 
         push @results, \@result;
@@ -68,42 +68,40 @@ sub block_on {
 
 =cut
 
-sub submit {
-    my ( $self, $deps, $action, $handler ) = @_;
+sub defer {
+    my ( $self, $deps, $callback ) = @_;
 
     if ( ref $deps ne 'ARRAY' ) {
-        croak "deps argument to submit() must be an arrayref";
+        croak "deps argument to defer() must be an arrayref";
     }
+    if ( ref $callback ne 'CODE' ) {
+        croak "callback argument to defer() must be a coderef";
+    }
+
+    return $self->_action( $deps, $callback );
+}
+
+sub handle {
+    my ( $self, $action, $handler ) = @_;
+
     if ( ref $handler ne 'CODE' ) {
-        croak "handler argument to submit() must be a coderef";
+        croak "handler argument to handle() must be a coderef";
     }
 
     if ( blessed $action && $action->isa( 'My::Command' ) ) {
-        return $self->_action(
-            $deps,
-            $handler,
-            command => $action,
-        );
-    }
-
-    if ( ref $action eq 'ARRAY' ) {
-        return $self->_action(
-            $deps,
-            $handler,
-            result => $action,
-        );
+        return $self->_action( [], $handler, command => $action );
     }
 
     if ( ref $action eq 'CODE' ) {
         return $self->_action(
-            $deps,
+            [],
             $handler,
             bootstrap => $action,
             emissions => [],
         );
     }
 
-    croak "action argument to submit() must be either a My::Command, an arrayref or a coderef";
+    croak "action argument to handle() must be either a My::Command or a coderef";
 }
 
 sub emit {
@@ -176,10 +174,7 @@ sub _start {
 
     my $action = $self->{_actions}{$actionid};
 
-    if ( exists $action->{result} ) {
-        push @{ $self->{_pending} }, $actionid;
-    }
-    elsif ( exists $action->{command} ) {
+    if ( exists $action->{command} ) {
         $self->{_executor}->submit( $actionid, $action->{command} );
     }
     elsif ( exists $action->{bootstrap} ) {
@@ -189,7 +184,7 @@ sub _start {
         $self->_finalize( $actionid );
     }
     else {
-        croak "unreachable";
+        push @{ $self->{_pending} }, $actionid;
     }
 
     return;
@@ -211,8 +206,11 @@ sub _handle {
         my $args = shift @{ $action->{emissions} };
         $handler->( @$args );
     }
-    else {
+    elsif ( exists $action->{result} ) {
         $handler->( @{ $action->{result} } );
+    }
+    else {
+        $handler->();
     }
 
     $self->_finalize( $actionid );

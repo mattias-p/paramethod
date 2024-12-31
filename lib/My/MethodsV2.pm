@@ -33,8 +33,8 @@ sub lookup {
             }
         };
 
-        $scheduler->submit( [], query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A' ),    sub { $handler->( 'A',    shift ) } );
-        $scheduler->submit( [], query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA' ), sub { $handler->( 'AAAA', shift ) } );
+        $scheduler->handle( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A' ),    sub { $handler->( 'A',    shift ) } );
+        $scheduler->handle( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA' ), sub { $handler->( 'AAAA', shift ) } );
 
         return;
     };
@@ -77,7 +77,7 @@ sub get_parent_ns_ip {
         # Step 4
         $process_root_servers = sub {
             for my $addr ( @{$root_name_servers} ) {
-                $scheduler->submit( [], [ $addr, '.' ], $handle_server );
+                $scheduler->defer( [], sub { $handle_server->( $addr, '.' ) } );
             }
         };
 
@@ -98,8 +98,7 @@ sub get_parent_ns_ip {
             my $zone_name_ns_query  = query( server_ip => $server_address, qname => $zone_name, qtype => 'NS' );
 
             # Step 5.4
-            $scheduler->submit(
-                [],
+            $scheduler->handle(
                 $zone_name_soa_query,
                 sub {
                     my ( $soa_response ) = @_;
@@ -116,8 +115,7 @@ sub get_parent_ns_ip {
                     }
 
                     # Step 5.6
-                    $scheduler->submit(
-                        [],
+                    $scheduler->handle(
                         $zone_name_ns_query,
                         sub {
                             my ( $ns_response ) = @_;
@@ -153,7 +151,7 @@ sub get_parent_ns_ip {
 
             # Step 5.10
             # Step 5.11.5.2.8
-            $scheduler->submit( [], [ $server_address, $qname ], $handle_intermediate );
+            $scheduler->defer( [], sub { $handle_intermediate->( $server_address, $qname ) } );
         };
 
         # $process_ns_rrs implements a snipped of duplicated pseudo-code in Get-Parent-NS-IP.
@@ -182,8 +180,7 @@ sub get_parent_ns_ip {
                     # Step 5.9
                     # Step 5.11.5.2.5
                     # Step 5.11.6.2.2
-                    $scheduler->submit(
-                        [],
+                    $scheduler->handle(
                         lookup( $root_name_servers, $rr->nsdname ),
                         sub {
                             my ( $addr ) = @_;
@@ -191,7 +188,7 @@ sub get_parent_ns_ip {
                             # Step 5.9.1 variant 1/2
                             # Step 5.11.5.2.6 variant 1/2
                             # Step 5.11.6.2.3 variant 1/2
-                            $scheduler->submit( [], [ $addr, $zone_name ], $handle_server );
+                            $scheduler->defer( [], sub { $handle_server->( $addr, $zone_name ) } );
                         }
                     );
                 }
@@ -200,7 +197,7 @@ sub get_parent_ns_ip {
                     # Step 5.11.5.2.6 variant 2/2
                     # Step 5.11.6.2.3 variant 2/2
                     for my $addr ( @{ $glue{ $rr->nsdname } } ) {
-                        $scheduler->submit( [], [ $addr, $zone_name ], $handle_server );
+                        $scheduler->defer( [], sub { $handle_server->( $addr, $zone_name ) } );
                     }
                 }
             }
@@ -221,8 +218,7 @@ sub get_parent_ns_ip {
             my $intermediate_soa_query = query( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'SOA' );
 
             # Step 5.11.3
-            $scheduler->submit(
-                [],
+            $scheduler->handle(
                 $intermediate_soa_query,
                 sub {
                     my ( $soa_response ) = @_;
@@ -249,8 +245,7 @@ sub get_parent_ns_ip {
                         my $intermediate_ns_query = query( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'NS' );
 
                         # Step 5.11.5.2.2
-                        $scheduler->submit(
-                            [],
+                        $scheduler->handle(
                             $intermediate_ns_query,
                             sub {
                                 my ( $ns_response ) = @_;
@@ -285,7 +280,7 @@ sub get_parent_ns_ip {
 
                         # Step 5.11.7.1
                         if ( $intermediate_query_name ne $child_zone ) {
-                            $scheduler->submit( [], [ $server_address, $intermediate_query_name ], $handle_intermediate );
+                            $scheduler->defer( [], sub { $handle_intermediate->( $server_address, $intermediate_query_name ) } );
                         }
 
                         return;
