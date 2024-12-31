@@ -188,6 +188,7 @@ sub _start {
         local $self->{_cur_action} = $actionid;
         local $self->{_cur_task}   = $actionid;
         $action->{bootstrap}( $self );
+        $self->_finalize( $actionid );
     }
     else {
         croak "unreachable";
