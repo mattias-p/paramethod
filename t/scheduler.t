@@ -33,4 +33,31 @@ subtest 'top level emit' => sub {
     };
 };
 
+subtest 'task' => sub {
+    lives_and {
+        my @handled;
+        my @returned = block_on(
+            $executor,
+            sub {
+                my ( $scheduler ) = @_;
+
+                my $bootstrap = sub {
+                    $scheduler->emit( 123 );
+                };
+
+                my $handler = sub {
+                    push @handled, \@_;
+                    $scheduler->emit( 456 );
+                };
+
+                $scheduler->submit( [], $bootstrap, $handler );
+            },
+        );
+
+        eq_or_diff                                              #
+          { handled => \@handled, returned => \@returned, },    #
+          { handled => [ [123] ], returned => [ [456] ], };
+    };
+};
+
 done_testing;

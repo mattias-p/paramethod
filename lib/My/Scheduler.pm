@@ -82,7 +82,6 @@ sub submit {
         return $self->_action(
             $deps,
             $handler,
-            task    => $self->{_cur_task},
             command => $action,
         );
     }
@@ -91,7 +90,6 @@ sub submit {
         return $self->_action(
             $deps,
             $handler,
-            task   => $self->{_cur_task},
             result => $action,
         );
     }
@@ -149,8 +147,8 @@ sub _action {
     my $parent = $self->{_cur_action};
 
     $self->{_actions}{$actionid} = {
-        task => $actionid,
         %properties,
+        task           => $self->{_cur_task},
         handler        => $handler,
         num_dependents => 0,
         num_children   => 0,
@@ -206,8 +204,8 @@ sub _handle {
 
     my $action  = $self->{_actions}{$actionid};
     my $handler = $action->{handler};
-    local $self->{_cur_task}   = $action->{task};
     local $self->{_cur_action} = $actionid;
+    local $self->{_cur_task}   = $action->{task};
 
     if ( exists $action->{bootstrap} ) {
         my $args = shift @{ $action->{emissions} };
