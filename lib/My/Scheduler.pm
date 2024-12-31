@@ -210,9 +210,8 @@ sub _handle {
     local $self->{_cur_action} = $actionid;
 
     if ( exists $action->{bootstrap} ) {
-        while ( my $args = shift @{ $action->{emissions} } ) {
-            $handler->( @$args );
-        }
+        my $args = shift @{ $action->{emissions} };
+        $handler->( @$args );
     }
     else {
         $handler->( @{ $action->{result} } );

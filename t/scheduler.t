@@ -17,4 +17,20 @@ subtest 'noop' => sub {
     };
 };
 
+subtest 'top level emit' => sub {
+    lives_and {
+        my @results = block_on(
+            $executor,
+            sub {
+                my ( $scheduler ) = @_;
+
+                $scheduler->emit( 123 );
+                $scheduler->emit( 456 );
+            }
+        );
+
+        eq_or_diff \@results, [ [123], [456] ];
+    };
+};
+
 done_testing;
