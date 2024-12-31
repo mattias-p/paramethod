@@ -19,11 +19,11 @@ sub lookup {
         my ( $scheduler ) = @_;
 
         my $handler = sub {
-            my ( $query, $packet ) = @_;
+            my ( $qtype, $packet ) = @_;
 
             if ( defined $packet ) {
-                my $qname = lc $query->qname =~ s/([^.])$/$1./r;
-                my $qtype = uc $query->qtype;
+                $qname = lc $qname =~ s/([^.])$/$1./r;
+                $qtype = uc $qtype;
 
                 for my $rr ( $packet->answer ) {
                     if ( lc $rr->owner eq $qname && uc $rr->type eq $qtype ) {
@@ -33,8 +33,8 @@ sub lookup {
             }
         };
 
-        $scheduler->execute( [], query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A' ),    $handler, );
-        $scheduler->execute( [], query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA' ), $handler, );
+        $scheduler->submit( [], query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A' ),    sub { $handler->( 'A',    shift ) } );
+        $scheduler->submit( [], query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA' ), sub { $handler->( 'AAAA', shift ) } );
 
         return;
     };
@@ -72,7 +72,7 @@ sub get_parent_ns_ip {
         # Step 3
         my %handled_servers; # "Handled Servers"
         # Instead of adding pairs to "Remaining Servers", they are submitted to the scheduler to be handled by $handle_server.
-        # Instead of adding addresses to "Parent NS IP", they are emitted from this collection.
+        # Instead of adding addresses to "Parent NS IP", they are emitted from this task.
 
         # Step 4
         $process_root_servers = sub {
@@ -98,11 +98,11 @@ sub get_parent_ns_ip {
             my $zone_name_ns_query  = query( server_ip => $server_address, qname => $zone_name, qtype => 'NS' );
 
             # Step 5.4
-            $scheduler->execute(
+            $scheduler->submit(
                 [],
                 $zone_name_soa_query,
                 sub {
-                    my ( undef, $soa_response ) = @_;
+                    my ( $soa_response ) = @_;
 
                     # Step 5.5 part 1/2
                     if ( !defined $soa_response || $soa_response->rcode ne 'NOERROR' || !$soa_response->aa ) {
@@ -116,11 +116,11 @@ sub get_parent_ns_ip {
                     }
 
                     # Step 5.6
-                    $scheduler->execute(
+                    $scheduler->submit(
                         [],
                         $zone_name_ns_query,
                         sub {
-                            my ( undef, $ns_response ) = @_;
+                            my ( $ns_response ) = @_;
 
                             $process_ns_response->( $ns_response, $server_address, $zone_name );
                         }
@@ -182,7 +182,7 @@ sub get_parent_ns_ip {
                     # Step 5.9
                     # Step 5.11.5.2.5
                     # Step 5.11.6.2.2
-                    $scheduler->collect(
+                    $scheduler->submit(
                         [],
                         lookup( $root_name_servers, $rr->nsdname ),
                         sub {
@@ -221,11 +221,11 @@ sub get_parent_ns_ip {
             my $intermediate_soa_query = query( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'SOA' );
 
             # Step 5.11.3
-            $scheduler->execute(
+            $scheduler->submit(
                 [],
                 $intermediate_soa_query,
                 sub {
-                    my ( undef, $soa_response ) = @_;
+                    my ( $soa_response ) = @_;
 
                     # Step 5.11.4
                     if ( !defined $soa_response ) {
@@ -249,11 +249,11 @@ sub get_parent_ns_ip {
                         my $intermediate_ns_query = query( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'NS' );
 
                         # Step 5.11.5.2.2
-                        $scheduler->execute(
+                        $scheduler->submit(
                             [],
                             $intermediate_ns_query,
                             sub {
-                                my ( undef, $ns_response ) = @_;
+                                my ( $ns_response ) = @_;
 
                                 $process_ns_response->( $ns_response, $server_address, $intermediate_query_name );
                             }

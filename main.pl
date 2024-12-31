@@ -11,7 +11,7 @@ block_on(
     sub {
         my ( $scheduler ) = @_;
 
-        $scheduler->collect(
+        $scheduler->submit(
             [],
             get_parent_ns_ip(
                 'jprs.co.jp',

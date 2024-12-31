@@ -11,6 +11,7 @@ use warnings;
 
 use Carp qw( croak );
 use Exporter 'import';
+use Scalar::Util qw( blessed );
 
 our @EXPORT_OK = qw( block_on );
 
@@ -32,108 +33,91 @@ sub block_on {
     my ( $executor, $bootstrap ) = @_;
 
     my $scheduler = {
-        _executor       => $executor,
-        _num_actions    => 0,
-        _cur_action     => 0,
-        _cur_collection => 0,
-        _actions        => {},
-        _pending        => [],
+        _executor    => $executor,
+        _num_actions => 0,
+        _cur_action  => 0,
+        _cur_task    => 0,
+        _actions     => {},
+        _pending     => [],
     };
 
     bless $scheduler, 'My::Scheduler';
 
-    $bootstrap->( $scheduler );
+    my @results;
+
+    $scheduler->submit( [], $bootstrap, sub {
+        my ( @result ) = @_;
+
+        push @results, \@result;
+    });
 
     $scheduler->_run();
 
-    return;
+    return @results;
 }
 
 =head1 METHODS
 
-=head2 execute()
+=head2 submit()
 
-    $scheduler->execute( [], $command, sub {
-        my ( $command, @result ) = @_;
+    $scheduler->submit( [], $action, sub {
+        my ( @result ) = @_;
 
         ...
     });
 
 =cut
 
-sub execute {
-    my ( $self, $deps, $command, $handler ) = @_;
-
-    if ( ref $deps ne 'ARRAY' ) {
-        croak "deps argument to execute() must be an arrayref";
-    }
-    if ( !blessed $command || !$command->isa( 'My::Command' ) ) {
-        croak "command argument to execute() must be a My::Command";
-    }
-    if ( ref $handler ne 'CODE' ) {
-        croak "handler argument to execute() must be a coderef";
-    }
-
-    return $self->_action(
-        $deps,
-        $handler,
-        collection => $self->{_cur_collection},
-        command    => $command,
-    );
-}
-
 sub submit {
-    my ( $self, $deps, $args, $handler ) = @_;
+    my ( $self, $deps, $action, $handler ) = @_;
 
     if ( ref $deps ne 'ARRAY' ) {
         croak "deps argument to submit() must be an arrayref";
-    }
-    if ( ref $args ne 'ARRAY' ) {
-        croak "args argument to submit() must be an arrayref";
     }
     if ( ref $handler ne 'CODE' ) {
         croak "handler argument to submit() must be a coderef";
     }
 
-    return $self->_action(
-        $deps,
-        $handler,
-        collection => $self->{_cur_collection},
-        result     => $args,
-    );
-}
-
-sub collect {
-    my ( $self, $deps, $bootstrap, $handler ) = @_;
-
-    if ( ref $deps ne 'ARRAY' ) {
-        croak "deps argument to collect() must be an arrayref";
-    }
-    if ( ref $bootstrap ne 'CODE' ) {
-        croak "bootstrap argument to collect() must be a coderef";
-    }
-    if ( ref $handler ne 'CODE' ) {
-        croak "handler argument to collect() must be a coderef";
+    if ( blessed $action && $action->isa( 'My::Command' ) ) {
+        return $self->_action(
+            $deps,
+            $handler,
+            task    => $self->{_cur_task},
+            command => $action,
+        );
     }
 
-    return $self->_action(
-        $deps,
-        $handler,
-        bootstrap => $bootstrap,
-        emissions => [],
-    );
+    if ( ref $action eq 'ARRAY' ) {
+        return $self->_action(
+            $deps,
+            $handler,
+            task   => $self->{_cur_task},
+            result => $action,
+        );
+    }
+
+    if ( ref $action eq 'CODE' ) {
+        return $self->_action(
+            $deps,
+            $handler,
+            bootstrap => $action,
+            emissions => [],
+        );
+    }
+
+    croak "action argument to submit() must be either a My::Command, an arrayref or a coderef";
 }
 
 sub emit {
     my ( $self, @args ) = @_;
 
-    if ( $self->{_cur_collection} == 0 ) {
-        croak "no active collection";
+    if ( $self->{_cur_task} == 0 ) {
+        croak "no active task";
     }
 
-    my $collection = $self->{_cur_collection};
-    push @{ $self->{_actions}{$collection}{emissions} }, \@args;
-    push @{ $self->{_pending} },                         $collection;
+    my $task = $self->{_cur_task};
+    push @{ $self->{_actions}{$task}{emissions} }, \@args;
+    push @{ $self->{_pending} },                   $task;
 
     return;
 }
@@ -165,7 +149,7 @@ sub _action {
     my $parent = $self->{_cur_action};
 
     $self->{_actions}{$actionid} = {
-        collection => $actionid,
+        task => $actionid,
         %properties,
         handler        => $handler,
         num_dependents => 0,
@@ -201,8 +185,8 @@ sub _start {
         $self->{_executor}->submit( $actionid, $action->{command} );
     }
     elsif ( exists $action->{bootstrap} ) {
-        local $self->{_cur_action}     = $actionid;
-        local $self->{_cur_collection} = $actionid;
+        local $self->{_cur_action} = $actionid;
+        local $self->{_cur_task}   = $actionid;
         $action->{bootstrap}( $self );
     }
     else {
@@ -221,13 +205,10 @@ sub _handle {
 
     my $action  = $self->{_actions}{$actionid};
     my $handler = $action->{handler};
-    local $self->{_cur_collection} = $action->{collection};
-    local $self->{_cur_action}     = $actionid;
+    local $self->{_cur_task}   = $action->{task};
+    local $self->{_cur_action} = $actionid;
 
-    if ( exists $action->{command} ) {
-        $handler->( $action->{command}, @{ $action->{result} } );
-    }
-    elsif ( exists $action->{bootstrap} ) {
+    if ( exists $action->{bootstrap} ) {
         while ( my $args = shift @{ $action->{emissions} } ) {
             $handler->( @$args );
         }
