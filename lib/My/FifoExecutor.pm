@@ -10,14 +10,16 @@ use warnings;
 
 use Carp qw( croak );
 use My::Query;
+use Net::DNS;
 use Readonly;
-use Zonemaster::LDNS;
 
 Readonly my %command_types => (
     'My::Query' => sub {
         my ( $query ) = @_;
 
-        my $response = Zonemaster::LDNS->new( $query->server_ip )->query( $query->qname, $query->qtype );
+        my $client   = Net::DNS::Resolver->new( nameserver => $query->server_ip, recurse => 0 );
+        my $response = $client->send( $query->qname, $query->qtype );
+
         return $response;
     },
 );

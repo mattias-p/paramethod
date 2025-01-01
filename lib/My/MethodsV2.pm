@@ -12,6 +12,18 @@ our @EXPORT_OK = qw(
     get_parent_ns_ip
 );
 
+sub eq_domain_name {
+    my ( $a, $b ) = @_;
+
+    return lc( $a =~ s/[.]$//r ) eq lc( $b =~ s/[.]$//r );
+}
+
+sub ne_domain_name {
+    my ( $a, $b ) = @_;
+
+    return lc( $a =~ s/[.]$//r ) ne lc( $b =~ s/[.]$//r );
+}
+
 sub lookup {
     my ( undef, $qname ) = @_;
 
@@ -26,7 +38,7 @@ sub lookup {
                 $qtype = uc $qtype;
 
                 for my $rr ( $packet->answer ) {
-                    if ( lc $rr->owner eq $qname && uc $rr->type eq $qtype ) {
+                    if ( eq_domain_name( $rr->owner, $qname ) && uc $rr->type eq $qtype ) {
                         $scheduler->emit( $rr->address );
                     }
                 }
@@ -104,13 +116,13 @@ sub get_parent_ns_ip {
                     my ( $soa_response ) = @_;
 
                     # Step 5.5 part 1/2
-                    if ( !defined $soa_response || $soa_response->rcode ne 'NOERROR' || !$soa_response->aa ) {
+                    if ( !defined $soa_response || $soa_response->header->rcode ne 'NOERROR' || !$soa_response->header->aa ) {
                         return;
                     }
 
                     # Step 5.5 part 2/2
                     my @soa_rrs = grep { $_->type eq 'SOA' } $soa_response->answer;
-                    if ( @soa_rrs != 1 || grep { $_->owner ne $zone_name } @soa_rrs ) {
+                    if ( @soa_rrs != 1 || grep { ne_domain_name( $_->owner, $zone_name ) } @soa_rrs ) {
                         return;
                     }
 
@@ -133,7 +145,7 @@ sub get_parent_ns_ip {
 
             # Step 5.7 part 1/2
             # Step 5.11.5.2.3 part 1/2
-            if ( !defined $ns_response || $ns_response->rcode ne 'NOERROR' || !$ns_response->aa ) {
+            if ( !defined $ns_response || $ns_response->header->rcode ne 'NOERROR' || !$ns_response->header->aa ) {
                 return;
             }
 
@@ -143,7 +155,7 @@ sub get_parent_ns_ip {
 
             # Step 5.7 part 2/2
             # Step 5.11.5.2.3 part 2/2
-            if ( !@ns_rrs || grep { $_->owner ne $qname } @ns_rrs ) {
+            if ( !@ns_rrs || grep { ne_domain_name( $_->owner, $qname ) } @ns_rrs ) {
                 return;
             }
 
@@ -158,7 +170,7 @@ sub get_parent_ns_ip {
         $process_ns_rrs = sub {
             my ( $ns_rrs, $additional_section, $zone_name ) = @_;
 
-            $additional_section = [ sort { $a->owner cmp $b->owner } @$additional_section ];
+            $additional_section = [ sort { $a->address cmp $b->address } grep { $_->type eq 'A' || $_->type eq 'AAAA' } @$additional_section ];
             $ns_rrs = [ sort { $a->nsdname cmp $b->nsdname } @$ns_rrs ];
 
             # Step 5.8 part 2/2
@@ -169,7 +181,6 @@ sub get_parent_ns_ip {
                 $glue{ $rr->owner } //= [];
                 push @{ $glue{ $rr->owner } }, $rr->address;
             }
-
             for my $rr ( grep { $_->type eq 'AAAA' } @$additional_section ) {
                 $glue{ $rr->owner } //= [];
                 push @{ $glue{ $rr->owner } }, $rr->address;
@@ -229,8 +240,8 @@ sub get_parent_ns_ip {
                     }
 
                     # Step 5.11.5
-                    my @soa_rrs = grep { $_->type eq 'SOA' && $_->owner ne $intermediate_query_name } $soa_response->answer;
-                    if ( @soa_rrs == 1 && $soa_response->aa && $soa_response->rcode eq 'NOERROR' ) {
+                    my @soa_rrs = grep { $_->type eq 'SOA' && ne_domain_name( $_->owner, $intermediate_query_name ) } $soa_response->answer;
+                    if ( @soa_rrs == 1 && $soa_response->header->aa && $soa_response->header->rcode eq 'NOERROR' ) {
                         # Step 5.11.5.1
                         if ( $intermediate_query_name eq $child_zone ) {
 
@@ -257,7 +268,7 @@ sub get_parent_ns_ip {
                     }
 
                     # Step 5.11.6
-                    elsif ( $soa_response->rcode eq 'NOERROR' && !$soa_response->aa && grep { $_->type eq 'NS' } $soa_response->authority ) {
+                    elsif ( $soa_response->header->rcode eq 'NOERROR' && !$soa_response->header->aa && grep { $_->type eq 'NS' } $soa_response->authority ) {
                         # Step 5.11.6.1
                         if ( $intermediate_query_name eq $child_zone ) {
 
@@ -276,7 +287,7 @@ sub get_parent_ns_ip {
                     }
 
                     # Step 5.11.7
-                    elsif ( $soa_response->rcode eq 'NOERROR' && $soa_response->aa ) {
+                    elsif ( $soa_response->header->rcode eq 'NOERROR' && $soa_response->header->aa ) {
 
                         # Step 5.11.7.1
                         if ( $intermediate_query_name ne $child_zone ) {
