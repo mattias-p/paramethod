@@ -8,17 +8,19 @@ use Exporter 'import';
 use My::Query qw( query );
 
 our @EXPORT_OK = qw(
-    lookup
+    eq_domain
     get_parent_ns_ip
+    lookup
+    ne_domain
 );
 
-sub eq_domain_name {
+sub eq_domain {
     my ( $a, $b ) = @_;
 
     return lc( $a =~ s/[.]$//r ) eq lc( $b =~ s/[.]$//r );
 }
 
-sub ne_domain_name {
+sub ne_domain {
     my ( $a, $b ) = @_;
 
     return lc( $a =~ s/[.]$//r ) ne lc( $b =~ s/[.]$//r );
@@ -30,7 +32,7 @@ sub lookup {
     return sub {
         my ( $scheduler ) = @_;
 
-        my $handler = sub {
+        my $handle = sub {
             my ( $qtype, $packet ) = @_;
 
             if ( defined $packet ) {
@@ -38,15 +40,15 @@ sub lookup {
                 $qtype = uc $qtype;
 
                 for my $rr ( $packet->answer ) {
-                    if ( eq_domain_name( $rr->owner, $qname ) && uc $rr->type eq $qtype ) {
+                    if ( eq_domain( $rr->owner, $qname ) && uc $rr->type eq $qtype ) {
                         $scheduler->emit( $rr->address );
                     }
                 }
             }
         };
 
-        $scheduler->handle( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A' ),    sub { $handler->( 'A',    shift ) } );
-        $scheduler->handle( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA' ), sub { $handler->( 'AAAA', shift ) } );
+        $scheduler->handle( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A' ),    sub { $handle->( 'A',    shift ) } );
+        $scheduler->handle( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA' ), sub { $handle->( 'AAAA', shift ) } );
 
         return;
     };
@@ -122,7 +124,7 @@ sub get_parent_ns_ip {
 
                     # Step 5.5 part 2/2
                     my @soa_rrs = grep { $_->type eq 'SOA' } $soa_response->answer;
-                    if ( @soa_rrs != 1 || grep { ne_domain_name( $_->owner, $zone_name ) } @soa_rrs ) {
+                    if ( @soa_rrs != 1 || grep { ne_domain( $_->owner, $zone_name ) } @soa_rrs ) {
                         return;
                     }
 
@@ -155,7 +157,7 @@ sub get_parent_ns_ip {
 
             # Step 5.7 part 2/2
             # Step 5.11.5.2.3 part 2/2
-            if ( !@ns_rrs || grep { ne_domain_name( $_->owner, $qname ) } @ns_rrs ) {
+            if ( !@ns_rrs || grep { ne_domain( $_->owner, $qname ) } @ns_rrs ) {
                 return;
             }
 
@@ -240,7 +242,7 @@ sub get_parent_ns_ip {
                     }
 
                     # Step 5.11.5
-                    my @soa_rrs = grep { $_->type eq 'SOA' && ne_domain_name( $_->owner, $intermediate_query_name ) } $soa_response->answer;
+                    my @soa_rrs = grep { $_->type eq 'SOA' && ne_domain( $_->owner, $intermediate_query_name ) } $soa_response->answer;
                     if ( @soa_rrs == 1 && $soa_response->header->aa && $soa_response->header->rcode eq 'NOERROR' ) {
                         # Step 5.11.5.1
                         if ( $intermediate_query_name eq $child_zone ) {
