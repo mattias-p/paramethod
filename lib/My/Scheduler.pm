@@ -11,7 +11,7 @@ use warnings;
 
 use Carp qw( croak );
 use Exporter 'import';
-use Scalar::Util qw( blessed );
+use Scalar::Util qw( blessed looks_like_number );
 
 our @EXPORT_OK = qw( block_on );
 
@@ -135,6 +135,10 @@ sub _run {
 
         my ( $op, $actionid, undef, @result ) = $self->{_executor}->await;
 
+        if ( !looks_like_number($actionid) ) {
+            croak "actionid must look like number";
+        }
+
         if ( $op eq 'close' ) {
             $self->_finalize( $actionid );
         }
@@ -183,6 +187,10 @@ sub _action {
 sub _start {
     my ( $self, $actionid ) = @_;
 
+    if ( !looks_like_number($actionid) ) {
+        croak "actionid must look like number";
+    }
+
     my $action = $self->{_actions}{$actionid};
 
     if ( exists $action->{command} ) {
@@ -203,6 +211,10 @@ sub _start {
 
 sub _handle {
     my ( $self, $actionid ) = @_;
+
+    if ( !looks_like_number($actionid) ) {
+        croak "actionid must look like number";
+    }
 
     if ( !exists $self->{_actions}{$actionid} ) {
         croak "attempting to handle unknown action ($actionid)";

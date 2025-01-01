@@ -3,15 +3,18 @@ use 5.016;
 
 use My::ExecutorCache;
 use My::ExecutorFilter;
-use My::FifoExecutor;
 use My::MethodsV2 qw( get_parent_ns_ip );
+use My::ParExecutor;
 use My::Scheduler qw( block_on );
+use Time::HiRes qw( time );
 
 my %config = (    #
     ipv6 => 0,
 );
 
-my $executor = My::ExecutorFilter->new( My::ExecutorCache->new( My::FifoExecutor->new ), %config );
+my $executor = My::ExecutorFilter->new( My::ExecutorCache->new( My::ParExecutor->new ), %config );
+
+my $begin_time = time();
 
 block_on(
     $executor,
@@ -39,7 +42,7 @@ block_on(
             ),
             sub {
                 my ( $result ) = @_;
-                say $result;
+                printf( "%8.2fs  %s\n", time() - $begin_time, $result );
             }
         );
     }

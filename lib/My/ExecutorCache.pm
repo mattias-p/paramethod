@@ -52,8 +52,9 @@ sub submit {
         croak "command argument to submit() must be a My::Command";
     }
 
-    if ( exists $self->{_cache}{$command} ) {
-        push @{ $self->{_ready} }, [ $id, $command ];
+    if ( my $item = $self->{_cache}{$command} ) {
+        my ( $op, @result ) = @$item;
+        push @{ $self->{_ready} }, [ $op, $id, $command, @result ];
     }
     elsif ( exists $self->{_pending}{$command} ) {
         push @{ $self->{_pending}{$command} }, $id;
@@ -79,7 +80,7 @@ sub await {
     if ( !@{ $self->{_ready} } ) {
         my ( $op, undef, $command, @result ) = $self->{_inner}->await;
 
-        $self->{_cache}{$command} = \@result;
+        $self->{_cache}{$command} = [$op, @result];
 
         for my $id ( @{ delete $self->{_pending}{$command} } ) {
             push @{ $self->{_ready} }, [ $op, $id, $command, @result ];
