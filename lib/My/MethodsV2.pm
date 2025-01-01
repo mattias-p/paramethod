@@ -77,7 +77,7 @@ sub get_parent_ns_ip {
         # Step 4
         $process_root_servers = sub {
             for my $addr ( @{$root_name_servers} ) {
-                $scheduler->defer( [], sub { $handle_server->( $addr, '.' ) } );
+                $handle_server->( $addr, '.' );
             }
         };
 
@@ -151,7 +151,7 @@ sub get_parent_ns_ip {
 
             # Step 5.10
             # Step 5.11.5.2.8
-            $scheduler->defer( [], sub { $handle_intermediate->( $server_address, $qname ) } );
+            $handle_intermediate->( $server_address, $qname );
         };
 
         # $process_ns_rrs implements a snipped of duplicated pseudo-code in Get-Parent-NS-IP.
@@ -188,7 +188,7 @@ sub get_parent_ns_ip {
                             # Step 5.9.1 variant 1/2
                             # Step 5.11.5.2.6 variant 1/2
                             # Step 5.11.6.2.3 variant 1/2
-                            $scheduler->defer( [], sub { $handle_server->( $addr, $zone_name ) } );
+                            $handle_server->( $addr, $zone_name );
                         }
                     );
                 }
@@ -197,7 +197,7 @@ sub get_parent_ns_ip {
                     # Step 5.11.5.2.6 variant 2/2
                     # Step 5.11.6.2.3 variant 2/2
                     for my $addr ( @{ $glue{ $rr->nsdname } } ) {
-                        $scheduler->defer( [], sub { $handle_server->( $addr, $zone_name ) } );
+                        $handle_server->( $addr, $zone_name );
                     }
                 }
             }
@@ -280,7 +280,7 @@ sub get_parent_ns_ip {
 
                         # Step 5.11.7.1
                         if ( $intermediate_query_name ne $child_zone ) {
-                            $scheduler->defer( [], sub { $handle_intermediate->( $server_address, $intermediate_query_name ) } );
+                            $handle_intermediate->( $server_address, $intermediate_query_name );
                         }
 
                         return;
