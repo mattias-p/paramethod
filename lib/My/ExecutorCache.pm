@@ -1,10 +1,10 @@
 =head1 NAME
 
-My::CachingExecutor - Wraps an executor and caches its results.
+My::ExecutorCache - Wraps an executor and caches its results.
 
 =cut 
 
-package My::CachingExecutor;
+package My::ExecutorCache;
 use 5.016;
 use warnings;
 
@@ -17,7 +17,7 @@ use parent 'My::Executor';
 
 =head2 new()
 
-    my $executor = My::CachingExecutor->new( $inner_executor );
+    my $executor = My::ExecutorCache->new( $inner_executor );
 
 =cut
 
@@ -77,12 +77,12 @@ sub await {
     my ( $self ) = @_;
 
     if ( !@{ $self->{_ready} } ) {
-        my ( undef, $command, $result ) = $self->{_inner}->await;
+        my ( $op, undef, $command, @result ) = $self->{_inner}->await;
 
-        $self->{_cache}{$command} = $result;
+        $self->{_cache}{$command} = \@result;
 
         for my $id ( @{ delete $self->{_pending}{$command} } ) {
-            push @{ $self->{_ready} }, [ $id, $command, $result ];
+            push @{ $self->{_ready} }, [ $op, $id, $command, @result ];
         }
     }
 

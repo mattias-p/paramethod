@@ -80,7 +80,7 @@ sub await {
 
     my $result = $command_types{ ref $command }->( $command );
 
-    return $id, $command, $result;
+    return 'return', $id, $command, $result;
 }
 
 1;

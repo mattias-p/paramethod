@@ -58,6 +58,11 @@ sub block_on {
 
 =head1 METHODS
 
+executor->await returns:
+'close', actionid
+'return', actionid, results
+'yield', actionid, results
+
 =head2 submit()
 
     $scheduler->submit( [], $action, sub {
@@ -128,9 +133,15 @@ sub _run {
 
         last if !%{ $self->{_actions} };
 
-        my ( $actionid, undef, @result ) = $self->{_executor}->await;
-        $self->{_actions}{$actionid}{result} = \@result;
-        push @{ $self->{_pending} }, $actionid;
+        my ( $op, $actionid, undef, @result ) = $self->{_executor}->await;
+
+        if ( $op eq 'close' ) {
+            $self->_finalize( $actionid );
+        }
+        else {
+            $self->{_actions}{$actionid}{result} = \@result;
+            push @{ $self->{_pending} }, $actionid;
+        }
     }
 
     return;

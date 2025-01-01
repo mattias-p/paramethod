@@ -1,13 +1,20 @@
 #!/usr/bin/env perl
 use 5.016;
 
-use My::CachingExecutor;
+use My::ExecutorCache;
+use My::ExecutorFilter;
 use My::FifoExecutor;
 use My::MethodsV2 qw( get_parent_ns_ip );
 use My::Scheduler qw( block_on );
 
+my %config = (    #
+    ipv6 => 0,
+);
+
+my $executor = My::ExecutorFilter->new( My::ExecutorCache->new( My::FifoExecutor->new ), %config );
+
 block_on(
-    My::CachingExecutor->new( My::FifoExecutor->new ),
+    $executor,
     sub {
         my ( $scheduler ) = @_;
 
