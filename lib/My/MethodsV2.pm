@@ -26,8 +26,28 @@ sub ne_domain {
     return lc( $a =~ s/[.]$//r ) ne lc( $b =~ s/[.]$//r );
 }
 
+sub get_addresses {
+    my ( @rrs ) = @_;
+
+    @rrs =
+      sort { $a->address cmp $b->address }
+      grep { $_->type eq 'A' || $_->type eq 'AAAA' } @rrs;
+
+    my %glue;    # Unnamed in specification
+    for my $rr ( grep { $_->type eq 'A' } @rrs ) {
+        $glue{ $rr->owner } //= [];
+        push @{ $glue{ $rr->owner } }, $rr->address;
+    }
+    for my $rr ( grep { $_->type eq 'AAAA' } @rrs ) {
+        $glue{ $rr->owner } //= [];
+        push @{ $glue{ $rr->owner } }, $rr->address;
+    }
+
+    return %glue;
+}
+
 sub lookup {
-    my ( undef, $qname ) = @_;
+    my ( $origin, $origin_ns_ips, $qname ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
@@ -57,12 +77,13 @@ sub lookup {
 sub get_parent_ns_ip {
     my ( $child_zone, $root_name_servers, $is_undelegated ) = @_;
 
-    if ( ref $root_name_servers ne 'ARRAY' ) {
-        croak "root_name_servers argument to get_parent_ns_ip() must be an arrayref";
+    if ( ref $root_name_servers ne 'HASH' ) {
+        croak "root_name_servers argument to get_parent_ns_ip() must be a hashref";
     }
 
     $child_zone =~ s/([^.])$/$1./;
-    $root_name_servers = [ sort @$root_name_servers ];
+
+    my @root_ns_ips = map { @{ $root_name_servers->{$_} } } sort keys %$root_name_servers;
 
     return sub {
         my ( $scheduler ) = @_;
@@ -90,8 +111,10 @@ sub get_parent_ns_ip {
 
         # Step 4
         $process_root_servers = sub {
-            for my $addr ( @{$root_name_servers} ) {
-                $handle_server->( $addr, '.' );
+            for my $nsdname ( sort keys %$root_name_servers ) {
+                for my $addr ( sort @{ $root_name_servers->{ $nsdname } } ) {
+                    $handle_server->( $addr, '.' );
+                }
             }
         };
 
@@ -172,21 +195,12 @@ sub get_parent_ns_ip {
         $process_ns_rrs = sub {
             my ( $ns_rrs, $additional_section, $zone_name ) = @_;
 
-            $additional_section = [ sort { $a->address cmp $b->address } grep { $_->type eq 'A' || $_->type eq 'AAAA' } @$additional_section ];
             $ns_rrs = [ sort { $a->nsdname cmp $b->nsdname } @$ns_rrs ];
 
             # Step 5.8 part 2/2
             # Step 5.11.5.2.4 part 2/2
             # Step 5.11.6.2.1 part 2/2
-            my %glue;    # Unnamed in specification
-            for my $rr ( grep { $_->type eq 'A' } @$additional_section ) {
-                $glue{ $rr->owner } //= [];
-                push @{ $glue{ $rr->owner } }, $rr->address;
-            }
-            for my $rr ( grep { $_->type eq 'AAAA' } @$additional_section ) {
-                $glue{ $rr->owner } //= [];
-                push @{ $glue{ $rr->owner } }, $rr->address;
-            }
+            my %glue = get_addresses( @$additional_section );
 
             for my $rr ( @$ns_rrs ) {
                 if ( !exists $glue{ $rr->nsdname } ) {
@@ -194,7 +208,7 @@ sub get_parent_ns_ip {
                     # Step 5.11.5.2.5
                     # Step 5.11.6.2.2
                     $scheduler->handle(
-                        lookup( $root_name_servers, $rr->nsdname ),
+                        lookup( '.', \@root_ns_ips, $rr->nsdname ),
                         sub {
                             my ( $addr ) = @_;
 
