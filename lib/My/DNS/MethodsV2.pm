@@ -417,20 +417,24 @@ sub get_delegation {
 
                         # Step 7.3
                         if ( is_referral_to( $ns_response, $child_zone ) ) {
-
                             # Step 7.3.1
                             my @ns_rrs = grep { $_->type eq 'NS' } $ns_response->authority;
 
-                            # Step 7.3.2
+                            # Step 7.3.2 part 1/2
                             my %glue = get_addresses( $ns_response->additional );
+
                             for my $rr ( @ns_rrs ) {
+
+                                # Step 7.3.3 part 1/2 and 7.3.3.1
+                                if ( !exists $delegation_name_servers{ $rr->nsdname } ) {
+                                    $delegation_name_servers{ $rr->nsdname } = {};
+                                    $scheduler->produce( $rr->nsdname );
+                                }
+
+                                # Step 7.3.2 part 2/2
                                 if ( is_in_bailiwick( $rr->nsdname, $child_zone ) ) {
 
-                                    # Step 7.3.3 and 7.3.3.1
-                                    if ( !exists $delegation_name_servers{ $rr->nsdname } ) {
-                                        $delegation_name_servers{ $rr->nsdname } = {};
-                                        $scheduler->produce( $rr->nsdname );
-                                    }
+                                    # Step 7.3.3 part 2/2 and 7.3.3.1
                                     for my $addr ( @{ $glue{ $rr->nsdname } // [] } ) {
                                         if ( !exists $delegation_name_servers{ $rr->nsdname }{$addr} ) {
                                             $delegation_name_servers{ $rr->nsdname }{$addr} = 1;
