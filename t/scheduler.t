@@ -10,6 +10,8 @@ use Test::Exception;
 
 my $executor = My::FifoExecutor->new;
 
+=pod
+
 subtest 'noop' => sub {
     lives_and {
         my @results = block_on( $executor, sub { } );
@@ -57,6 +59,64 @@ subtest 'task' => sub {
         eq_or_diff                                              #
           { handled => \@handled, returned => \@returned, },    #
           { handled => [ [123] ], returned => [ [456] ], };
+    };
+};
+
+subtest 'defer' => sub {
+    lives_and {
+        my @returned = block_on(
+            $executor,
+            sub {
+                my ( $scheduler ) = @_;
+
+                my $actionid = $scheduler->defer(
+                    [],
+                    sub {
+                        $scheduler->emit( 123 );
+                    }
+                );
+                $scheduler->defer(
+                    [],
+                    sub {
+                        $scheduler->emit( 456 );
+                    }
+                );
+            },
+        );
+
+        eq_or_diff                                                        #
+          { returned => [ sort { $a->[0] <=> $b->[0] } @returned ], },    #
+          { returned => [ [123], [456] ], };
+    };
+};
+
+=cut
+
+subtest 'dependency' => sub {
+    lives_and {
+        my @returned = block_on(
+            $executor,
+            sub {
+                my ( $scheduler ) = @_;
+
+                my $actionid = $scheduler->defer(
+                    [],
+                    sub {
+                        $scheduler->emit( 123 );
+                    }
+                );
+                $scheduler->defer(
+                    [$actionid],
+                    sub {
+                        $scheduler->emit( 456 );
+                    }
+                );
+            },
+        );
+
+        eq_or_diff                             #
+          { returned => \@returned, },         #
+          { returned => [ [123], [456] ], };
     };
 };
 

@@ -74,16 +74,16 @@ executor->await returns:
 =cut
 
 sub defer {
-    my ( $self, $deps, $callback ) = @_;
+    my ( $self, $dependencies, $callback ) = @_;
 
-    if ( ref $deps ne 'ARRAY' ) {
-        croak "deps argument to defer() must be an arrayref";
+    if ( ref $dependencies ne 'ARRAY' ) {
+        croak "dependencies argument to defer() must be an arrayref";
     }
     if ( ref $callback ne 'CODE' ) {
         croak "callback argument to defer() must be a coderef";
     }
 
-    return $self->_action( $deps, $callback );
+    return $self->_action( $dependencies, $callback );
 }
 
 sub handle {
@@ -152,32 +152,32 @@ sub _run {
 }
 
 sub _action {
-    my ( $self, $deps, $handler, %properties ) = @_;
+    my ( $self, $dependencies, $handler, %properties ) = @_;
 
     my $actionid = ++$self->{_num_actions};
 
-    my %deps   = map { $_ => undef } @{$deps};
-    my $parent = $self->{_cur_action};
+    my %dependencies = map { $_ => undef } @{$dependencies};
+    my $parent       = $self->{_cur_action};
 
     $self->{_actions}{$actionid} = {
         %properties,
-        task           => $self->{_cur_task},
-        handler        => $handler,
-        num_dependents => 0,
-        num_children   => 0,
-        parent         => $parent,
-        dependencies   => [ sort keys %deps ],
+        task             => $self->{_cur_task},
+        handler          => $handler,
+        num_dependencies => scalar @{$dependencies},
+        num_children     => 0,
+        parent           => $parent,
+        dependents       => [],
     };
 
     if ( $parent ) {
         $self->{_actions}{$parent}{num_children}++;
     }
 
-    for my $dependent ( keys %deps ) {
-        $self->{_actions}{$dependent}{num_dependents}++;
+    for my $dependency ( keys %dependencies ) {
+        push @{ $self->{_actions}{$dependency}{dependents} }, $actionid;
     }
 
-    if ( !%deps ) {
+    if ( !%dependencies ) {
         $self->_start( $actionid );
     }
 
@@ -251,7 +251,7 @@ sub _finalize {
 
     for my $actionid ( @actionids ) {
         my $parent       = $self->{_actions}{$actionid}{parent};
-        my $dependencies = $self->{_actions}{$actionid}{dependencies};
+        my @dependents = @{ $self->{_actions}{$actionid}{dependents} };
 
         if ( $parent != 0 ) {
             $self->{_actions}{$parent}{num_children}--;
@@ -260,10 +260,10 @@ sub _finalize {
             }
         }
 
-        for my $dependent ( @{$dependencies} ) {
-            $self->{_actions}{$dependent}{num_dependents}--;
-            if ( !$self->_is_needed( $dependent ) ) {
-                push @actionids, $dependent;
+        for my $dependent ( @dependents ) {
+            $self->{_actions}{$dependent}{num_dependencies}--;
+            if ( $self->{_actions}{$dependent}{num_dependencies} == 0 ) {
+                push @{ $self->{_pending} }, $dependent;
             }
         }
 
@@ -282,7 +282,7 @@ sub _is_needed {
 
     my $action = $self->{_actions}{$actionid};
 
-    return $action->{num_children} > 0 || $action->{num_dependents} > 0 || @{ $action->{emissions} // [] };
+    return $action->{num_children} > 0 || $action->{num_dependencies} > 0 || @{ $action->{emissions} // [] };
 }
 
 1;
