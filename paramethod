@@ -14,7 +14,7 @@ use My::Concurrent::ExecutorProgress;
 use My::Concurrent::Scheduler;
 use My::DNS::BgExecutor;
 use My::DNS::ExecutorFilter;
-use My::DNS::MethodsV2 qw( get_parent_ns_ip get_delegation );
+use My::DNS::MethodsV2 qw( get_parent_ns_ip get_delegation get_del_ns_names_and_ips );
 use My::DNS::SequentialExecutor;
 use Pod::Usage;
 use Readonly;
@@ -45,31 +45,34 @@ Readonly my %ROOT_NAME_SERVERS => (
     'm.root-servers.net.' => [ '202.12.27.33',   '2001:dc3::35' ],
 );
 
+sub output_fields {
+    my @fields = @_;
+
+    output "%s", join '  ', @fields;
+
+    return;
+}
+
 Readonly my %METHOD_SETUPS => (
     'get-parent-ns-ip' => sub {
         my ( $scheduler, $domain ) = @_;
         $scheduler->consume(
             get_parent_ns_ip( $domain, \%ROOT_NAME_SERVERS ),
-            sub {
-                my ( $addr ) = @_;
-
-                output("%s", $addr);
-            }
+            \&output_fields,
         );
     },
     'get-delegation' => sub {
         my ( $scheduler, $domain ) = @_;
         $scheduler->consume(
             get_delegation( $domain, \%ROOT_NAME_SERVERS, {}, 0 ),
-            sub {
-                my ( $nsdname, $addr ) = @_;
-                if ( defined $addr ) {
-                    output("%s  %s", $nsdname, $addr);
-                }
-                else {
-                    output("%s", $nsdname);
-                }
-            }
+            \&output_fields,
+        );
+    },
+    'get-del-ns-names-and-ips' => sub {
+        my ( $scheduler, $domain ) = @_;
+        $scheduler->consume(
+            get_del_ns_names_and_ips( $domain, \%ROOT_NAME_SERVERS, {}, 0 ),
+            \&output_fields,
         );
     },
 );

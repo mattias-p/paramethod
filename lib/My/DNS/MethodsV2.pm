@@ -9,10 +9,11 @@ use My::DNS::Query qw( query );
 
 our @EXPORT_OK = qw(
     eq_domain
-    get_delegation
-    get_parent_ns_ip
-    lookup
     ne_domain
+    lookup
+    get_parent_ns_ip
+    get_delegation
+    get_del_ns_names_and_ips
 );
 
 sub eq_domain {
@@ -503,6 +504,69 @@ sub get_delegation {
             }
         );
     };
+}
+
+sub get_oob_ips {
+    my ( $nsdname, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+
+    return sub {
+        my ( $scheduler ) = @_;
+
+        # Step 3.1
+        if ( $is_undelegated ) {
+            for my $addr ( @$undelegated_data ) {
+                $scheduler->produce( $nsdname, $addr );
+            }
+        }
+        else {
+            $scheduler->consume(
+                lookup( '.', $root_name_servers, $nsdname ),
+                sub {
+                    my ( $addr ) = @_;
+                    $scheduler->produce( $addr );
+                }
+            );
+        }
+    };
+}
+
+sub get_del_ns_names_and_ips {
+    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+
+    return sub {
+        my ( $scheduler ) = @_;
+
+        # Step 1
+        $scheduler->consume(
+            get_delegation( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            sub {
+                my ( $nsdname, @addr ) = @_;
+
+                if ( @addr ) {
+
+                    # Step 6 variant 1/2 and 7
+                    $scheduler->produce( $nsdname, @addr );
+                }
+                else {
+                    $scheduler->produce( $nsdname );
+
+                    if ( !is_in_bailiwick( $nsdname, $child_zone ) ) {
+
+                        # Step 5
+                        $scheduler->consume(
+                            get_oob_ips( $nsdname, $root_name_servers, $undelegated_data, $is_undelegated ),
+                            sub {
+                                my ( $addr ) = @_;
+
+                                # Step 6 variant 2/2 and 7
+                                $scheduler->produce( $nsdname, $addr );
+                            }
+                        );
+                    }
+                }
+            }
+        );
+    }
 }
 
 1;
