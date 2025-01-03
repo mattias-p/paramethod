@@ -1,8 +1,8 @@
-package My::ParExecutor;
+package My::DNS::BgExecutor;
 use 5.016;
 use warnings;
 
-use parent 'My::Executor';
+use parent 'My::Concurrent::Executor';
 use Carp qw(croak);
 use Net::DNS;
 
@@ -27,7 +27,7 @@ sub _mk_packet {
 sub submit {
     my ( $self, $id, $command ) = @_;
 
-    croak "$command is not a My::Query object" unless $command->isa( 'My::Query' );
+    croak "$command is not a My::DNS::Query object" unless $command->isa( 'My::DNS::Query' );
 
     my $server_ip = $command->{server_ip};
 
@@ -77,21 +77,21 @@ __END__
 
 =head1 NAME
 
-My::ParExecutor - Execute My::Query commands in parallel.
+My::DNS::BgExecutor - Execute My::DNS::Query commands concurrently in the background.
 
 =head1 DESCRIPTION
 
-This implementation of L<My::Executor> uses the bgsend/bgbusy/bgread API in Net::DNS to perform DNS queries specified by L<My::Query> commands.
+This implementation of L<My::Concurrent::Executor> uses the bgsend/bgbusy/bgread API in Net::DNS to perform DNS queries specified by L<My::DNS::Query> commands.
 
 =head1 METHODS
 
 =head2 new()
 
-Creates a new instance of My::ParExecutor.
+Creates a new instance of My::DNS::BgExecutor.
 
 =head2 submit($id, $command)
 
-Submits a L<My::Query> command for execution. The DNS request is sent to the address specified in the command's server_ip attribute.
+Submits a L<My::DNS::Query> for execution. The DNS request is sent to the address specified in the command's server_ip attribute.
 
 =head2 await()
 

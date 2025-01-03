@@ -1,11 +1,11 @@
-package My::MethodsV2;
+package My::DNS::MethodsV2;
 use 5.016;
 use warnings;
 
 use Carp qw( croak );
 use Data::Validate::IP qw( is_ip );
 use Exporter 'import';
-use My::Query qw( query );
+use My::DNS::Query qw( query );
 
 our @EXPORT_OK = qw(
     eq_domain

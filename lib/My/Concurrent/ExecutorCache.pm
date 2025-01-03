@@ -1,23 +1,23 @@
 =head1 NAME
 
-My::ExecutorCache - Wraps an executor and caches its results.
+My::Concurrent::ExecutorCache - Wraps an executor and caches its results.
 
 =cut 
 
-package My::ExecutorCache;
+package My::Concurrent::ExecutorCache;
 use 5.016;
 use warnings;
 
 use Carp qw( croak );
 use Scalar::Util qw( blessed );
 
-use parent 'My::Executor';
+use parent 'My::Concurrent::Executor';
 
 =head1 CONSTRUCTORS
 
 =head2 new()
 
-    my $executor = My::ExecutorCache->new( $inner_executor );
+    my $executor = My::Concurrent::ExecutorCache->new( $inner_executor );
 
 =cut
 
@@ -48,8 +48,8 @@ When equivalent commands are seen, they're registered for immediate return from 
 sub submit {
     my ( $self, $id, $command ) = @_;
 
-    if ( !blessed $command || !$command->isa( 'My::Command' ) ) {
-        croak "command argument to submit() must be a My::Command";
+    if ( !blessed $command || !$command->isa( 'My::Concurrent::Command' ) ) {
+        croak "command argument to submit() must be a My::Concurrent::Command";
     }
 
     if ( my $item = $self->{_cache}{$command} ) {

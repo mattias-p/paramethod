@@ -1,10 +1,10 @@
 =head1 NAME
 
-My::Command - Base class for commands.
+My::Concurrent::Command - Base class for commands.
 
 =cut
 
-package My::Command;
+package My::Concurrent::Command;
 use 5.016;
 use warnings;
 

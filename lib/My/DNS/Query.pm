@@ -1,12 +1,12 @@
 =head1 NAME
 
-My::Query - Represents a DNS query command.
+My::DNS::Query - Represents a DNS query command.
 
 =head1 DESCRIPTION
 
 =cut
 
-package My::Query;
+package My::DNS::Query;
 use 5.016;
 use warnings;
 
@@ -17,7 +17,7 @@ use Data::Validate::IP qw( is_ip );
 
 use Exporter 'import';
 use base 'Class::Accessor';
-use parent 'My::Command';
+use parent 'My::Concurrent::Command';
 
 our @EXPORT_OK = qw( query );
 
@@ -25,7 +25,7 @@ our @EXPORT_OK = qw( query );
 
 Constructs a new instance.
 
-    use My::Query qw( query );
+    use My::DNS::Query qw( query );
 
     my $query = query( server_ip => '9.9.9.9', qname => 'iis.se', qtype => 'A' );
 
@@ -56,7 +56,7 @@ sub query {
         croak "unrecognized arguments: " . join ' ', sort keys %args;
     }
 
-    return bless $obj, 'My::Query';
+    return bless $obj, 'My::DNS::Query';
 }
 
 =head1 ATTRIBUTES
@@ -81,7 +81,7 @@ The qtype to use in the query.
 
 =cut
 
-My::Query->mk_accessors( qw( server_ip qname qtype ) );
+My::DNS::Query->mk_accessors( qw( server_ip qname qtype ) );
 
 =head1 METHODS
 

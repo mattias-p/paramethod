@@ -1,22 +1,21 @@
 =head1 NAME
 
-My::FifoExecutor - Executes commands sequentially.
+My::DNS::SequentialExecutor - Executes commands sequentially.
 
 =cut
 
-package My::FifoExecutor;
+package My::DNS::SequentialExecutor;
 use 5.016;
 use warnings;
 
-use parent 'My::Executor';
+use parent 'My::Concurrent::Executor';
 
 use Carp qw( croak );
-use My::Query;
 use Net::DNS;
 use Readonly;
 
 Readonly my %command_types => (
-    'My::Query' => sub {
+    'My::DNS::Query' => sub {
         my ( $query ) = @_;
 
         my $client   = Net::DNS::Resolver->new( nameserver => $query->server_ip, recurse => 0 );
@@ -28,7 +27,7 @@ Readonly my %command_types => (
 
 =head1 DESCRIPTION
 
-A simple implementation of My::Executor that executes commands sequentially in
+A simple implementation of My::Concurrent::Executor that executes commands sequentially in
 the foreground.
 
 =head1 CONSTRUCTORS
@@ -37,7 +36,7 @@ the foreground.
 
 Construct a new instance.
 
-    my $executor = My::FifoExecutor->new;
+    my $executor = My::DNS::SequentialExecutor->new;
 
 =cut
 

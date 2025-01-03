@@ -1,19 +1,16 @@
 
 =head1 NAME
 
-My::Scheduler - Implements cooperative multi-tasking.
+My::Concurrent::Scheduler - Implements cooperative multi-tasking.
 
 =cut
 
-package My::Scheduler;
+package My::Concurrent::Scheduler;
 use 5.016;
 use warnings;
 
 use Carp qw( croak );
-use Exporter 'import';
 use Scalar::Util qw( blessed looks_like_number );
-
-our @EXPORT_OK = qw( block_on );
 
 =head1 CONSTRUCTORS
 
@@ -21,9 +18,9 @@ our @EXPORT_OK = qw( block_on );
 
 Construct an instance that delegates commands to EXECUTOR.
 
-    my $scheduler = My::Scheduler->new( $executor );
+    my $scheduler = My::Concurrent::Scheduler->new( $executor );
 
-The EXECUTOR must implement My::Executor.
+The EXECUTOR must implement My::Concurrent::Executor.
 Exclusive control over EXECUTOR is assumed.
 
 =cut
@@ -31,8 +28,8 @@ Exclusive control over EXECUTOR is assumed.
 sub new {
     my ( $class, $executor ) = @_;
 
-    if ( !blessed $executor || !$executor->isa( 'My::Executor' ) ) {
-        croak "executor argument must be a My::Executor";
+    if ( !blessed $executor || !$executor->isa( 'My::Concurrent::Executor' ) ) {
+        croak "executor argument must be a My::Concurrent::Executor";
     }
 
     my $scheduler = {
@@ -91,9 +88,9 @@ Schedule a consumer task with an attached producer.
         ...
     });
 
-The PRODUCER may be a coderef. The coderef is called with the My::Scheduler instance as
+The PRODUCER may be a coderef. The coderef is called with the My::Concurrent::Scheduler instance as
 its only argument.
-The PRODUCER may be a My::Command instance. The instance is submitted to the executor.
+The PRODUCER may be a My::Concurrent::Command instance. The instance is submitted to the executor.
 For each result produced by the PRODUCER, the CONSUMER is called with the result as its
 arguments.
 
@@ -108,7 +105,7 @@ sub consume {
         croak "CONSUMER argument must be a coderef";
     }
 
-    if ( blessed $producer && $producer->isa( 'My::Command' ) ) {
+    if ( blessed $producer && $producer->isa( 'My::Concurrent::Command' ) ) {
         return $self->_task( [], $consumer, command => $producer );
     }
 
@@ -121,7 +118,7 @@ sub consume {
         );
     }
 
-    croak "PRODUCER argument must be either a My::Command or a coderef";
+    croak "PRODUCER argument must be either a My::Concurrent::Command or a coderef";
 }
 
 =head2 defer DEPENDENCIES, ACTION
