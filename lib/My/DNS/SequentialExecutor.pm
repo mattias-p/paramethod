@@ -12,18 +12,7 @@ use parent 'My::Concurrent::Executor';
 
 use Carp qw( croak );
 use Net::DNS;
-use Readonly;
-
-Readonly my %command_types => (
-    'My::DNS::Query' => sub {
-        my ( $query ) = @_;
-
-        my $client   = Net::DNS::Resolver->new( nameserver => $query->server_ip, recurse => 0 );
-        my $response = $client->send( $query->new_packet );
-
-        return $response;
-    },
-);
+use Scalar::Util qw( looks_like_number );
 
 =head1 DESCRIPTION
 
@@ -41,9 +30,18 @@ Construct a new instance.
 =cut
 
 sub new {
-    my ( $class ) = @_;
+    my ( $class, %args ) = @_;
 
-    return bless [], $class;
+    if ( defined $args{timeout} && ( !looks_like_number( $args{timeout} ) || $args{timeout} <= 0 ) ) {
+        croak "invalid argument: timeout";
+    }
+
+    my $obj = {
+        _timeout => delete $args{timeout},
+        _tasks   => [],
+    };
+
+    return bless $obj, $class;
 }
 
 =head1 METHODS
@@ -57,11 +55,11 @@ Enqueue a command.
 sub submit {
     my ( $self, $id, $command ) = @_;
 
-    if ( !exists $command_types{ ref $command } ) {
-        croak "unrecognized command type (" . ref( $command ) . ")";
+    if ( !blessed $command || !$command->isa( 'My::DNS::Query' ) ) {
+        croak "command muts be a My::DNS::Query";
     }
 
-    push @{ $self }, [ $id, $command ];
+    push @{ $self->{_tasks} }, [ $id, $command ];
 
     return;
 }
@@ -75,13 +73,19 @@ Execute the next command and return its result.
 sub await {
     my ( $self ) = @_;
 
-    if ( !@{$self} ) {
+    if ( !@{ $self->{_tasks} } ) {
         croak "no commands to await";
     }
 
-    my ( $id, $command ) = @{ shift @{$self} };
+    my ( $id, $command ) = @{ shift @{ $self->{_tasks} } };
 
-    my $result = $command_types{ ref $command }->( $command );
+    my $client = Net::DNS::Resolver->new( nameserver => $command->server_ip, recurse => 0 );
+    if ( defined $self->{_timeout} ) {
+        $client->tcp_timeout( $self->{_timeout} );
+        $client->udp_timeout( $self->{_timeout} );
+    }
+
+    my $result = $client->send( $command->new_packet );
 
     return 'return', $id, $command, $result;
 }

@@ -5,15 +5,21 @@ use warnings;
 use parent 'My::Concurrent::Executor';
 use Carp qw(croak);
 use Net::DNS;
+use Scalar::Util qw( looks_like_number );
 
 sub new {
-    my ( $class ) = @_;
+    my ( $class, %args ) = @_;
+
+    if ( defined $args{timeout} && ( !looks_like_number( $args{timeout} ) || $args{timeout} <= 0 ) ) {
+        croak "invalid argument: timeout";
+    }
 
     my $self = {
-        _clients  => {},
-        _pending  => [],
-        _index    => 0,
+        _clients     => {},
+        _pending     => [],
+        _index       => 0,
         _num_queries => 0,
+        _timeout     => delete $args{timeout},
     };
 
     return bless $self, $class;
@@ -32,7 +38,17 @@ sub submit {
 
     my $server_ip = $command->{server_ip};
 
-    $self->{_clients}{$server_ip} //= Net::DNS::Resolver->new( nameserver => $server_ip );
+    $self->{_clients}{$server_ip} //= do {
+        my $client = Net::DNS::Resolver->new( nameserver => $server_ip );
+
+        if ( defined $self->{_timeout} ) {
+            $client->tcp_timeout( $self->{_timeout} );
+            $client->udp_timeout( $self->{_timeout} );
+        }
+
+        $client
+    };
+
     my $client = $self->{_clients}{$server_ip};
 
     my $handle = $client->bgsend( $command->new_packet );
