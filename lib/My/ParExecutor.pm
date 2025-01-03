@@ -46,6 +46,10 @@ sub submit {
 sub await {
     my ( $self ) = @_;
 
+    if ( !@{ $self->{_pending} } ) {
+        croak "no commands to await";
+    }
+
     while ( 1 ) {
         if ( $self->{_index} > $#{ $self->{_pending} } ) {
             $self->{_index} = 0;

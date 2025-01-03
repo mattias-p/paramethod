@@ -12,7 +12,7 @@ use Getopt::Long qw( :config gnu_getopt );
 use My::ExecutorCache;
 use My::ExecutorFilter;
 use My::FifoExecutor;
-use My::MethodsV2 qw( get_parent_ns_ip );
+use My::MethodsV2 qw( get_parent_ns_ip get_delegation );
 use My::ParExecutor;
 use My::Scheduler qw( block_on );
 use Readonly;
@@ -77,10 +77,16 @@ block_on(
         my ( $scheduler ) = @_;
 
         $scheduler->handle(
-            get_parent_ns_ip( $domain, \%root_name_servers ),
+            #get_parent_ns_ip( $domain, \%root_name_servers ),
+            get_delegation( $domain, \%root_name_servers, {}, 0 ),
             sub {
-                my ( $result ) = @_;
-                printf( "%8.2fs  %s\n", time() - $begin_time, $result );
+                my ( $nsdname, $addr ) = @_;
+                if ( defined $addr ) {
+                    printf( "%8.2fs  %s  %s\n", time() - $begin_time, $nsdname, $addr );
+                }
+                else {
+                    printf( "%8.2fs  %s\n", time() - $begin_time, $nsdname );
+                }
             }
         );
     }

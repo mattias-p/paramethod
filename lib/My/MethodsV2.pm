@@ -9,6 +9,7 @@ use My::Query qw( query );
 
 our @EXPORT_OK = qw(
     eq_domain
+    get_delegation
     get_parent_ns_ip
     lookup
     ne_domain
@@ -24,6 +25,39 @@ sub ne_domain {
     my ( $a, $b ) = @_;
 
     return lc( $a =~ s/[.]$//r ) ne lc( $b =~ s/[.]$//r );
+}
+
+# TODO: What are we supposed to check here?
+sub is_valid_response {
+    my ( $response ) = @_;
+
+    return 1;
+}
+
+sub is_referral_to {
+    my ( $response, $zone_name ) = @_;
+
+    return
+         ( $response->header->rcode eq 'NOERROR' )
+      && ( !$response->header->aa )
+      && ( grep { $_->type eq 'NS' } $response->authority )
+      && ( !grep { $_->type eq 'NS' && ne_domain( $_->owner, $zone_name ) } $response->authority )
+      && ( !grep { $_->type ne 'CNAME' } $response->answer )
+      && ( !$response->answer || !grep { $_ eq 'CNAME' } $response->question );
+}
+
+sub is_in_bailiwick {
+    my ($domain, $bailiwick) = @_;
+
+    $domain = lc $domain;
+    $bailiwick = lc $bailiwick;
+
+    # Remove trailing dots for uniformity
+    $domain =~ s/\.$//;
+    $bailiwick =~ s/\.$//;
+
+    # Check if the domain ends with the bailiwick
+    return ($domain eq $bailiwick || $domain =~ /\.\Q$bailiwick\E$/) ? 1 : 0;
 }
 
 sub get_addresses {
@@ -323,3 +357,148 @@ sub get_parent_ns_ip {
         $process_root_servers->();
     };
 }
+
+sub get_delegation {
+    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+
+    return sub {
+        my ( $scheduler ) = @_;
+
+        # Step 1
+        if ( $is_undelegated ) {
+
+            # Step 1.1-1.6
+            for my $nsdname ( sort keys @{$undelegated_data} ) {
+                $scheduler->emit( $nsdname );
+                for my $addr ( @{ $undelegated_data->{$nsdname} } ) {
+                    $scheduler->emit( $nsdname, $addr );
+                }
+            }
+
+            # Step 1.7
+            return;
+        }
+
+        # Step 2
+        if ( eq_domain( $child_zone, '.' ) ) {
+            for my $nsdname ( sort keys @{$root_name_servers} ) {
+                $scheduler->emit( $nsdname );
+                for my $addr ( @{ $root_name_servers->{$nsdname} } ) {
+                    $scheduler->emit( $nsdname, $addr );
+                }
+            }
+
+            return;
+        }
+
+        # Step 6
+        my %delegation_name_servers;
+        my %aa_name_servers;
+
+        # Step 3 and 7
+        my $actionid = $scheduler->handle(
+            get_parent_ns_ip( $child_zone, $root_name_servers, $is_undelegated ),
+            sub {
+                my ( $parent_ns ) = @_;
+
+                # Step 5
+                my $ns_query = query( server_ip => $parent_ns, qname => $child_zone, qtype => 'NS' );
+
+                # Step 7.1
+                $scheduler->handle(
+                    $ns_query,
+                    sub {
+                        my ( $ns_response ) = @_;
+
+                        # Step 7.2
+                        if ( !defined $ns_response || !is_valid_response( $ns_response ) || $ns_response->header->rcode ne 'NOERROR' ) {
+                            return;
+                        }
+
+                        # Step 7.3
+                        if ( is_referral_to( $ns_response, $child_zone ) ) {
+
+                            # Step 7.3.1
+                            my @ns_rrs = grep { $_->type eq 'NS' } $ns_response->authority;
+
+                            # Step 7.3.2
+                            my %glue = get_addresses( $ns_response->additional );
+                            for my $rr ( @ns_rrs ) {
+                                if ( is_in_bailiwick( $rr->nsdname, $child_zone ) ) {
+
+                                    # Step 7.3.3 and 7.3.3.1
+                                    if ( !exists $delegation_name_servers{ $rr->nsdname } ) {
+                                        $delegation_name_servers{ $rr->nsdname } = {};
+                                        $scheduler->emit( $rr->nsdname );
+                                    }
+                                    for my $addr ( @{ $glue{ $rr->nsdname } // [] } ) {
+                                        if ( !exists $delegation_name_servers{ $rr->nsdname }{$addr} ) {
+                                            $delegation_name_servers{ $rr->nsdname }{$addr} = 1;
+                                            $scheduler->emit( $rr->nsdname, $addr );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        # Step 7.4 part 1
+                        elsif ( $ns_response->header->aa ) {
+
+                            # Step 7.4.1
+                            my @ns_rrs = grep { $_->type eq 'NS' } $ns_response->answer;
+
+                            # Step 7.4 part 2
+                            if ( grep { eq_domain( $_->owner, $child_zone ) } @ns_rrs ) {
+
+                                # Step 7.4.2, 7.4.3 and 7.4.3.1
+                                my %glue = get_addresses( $ns_response->additional );
+                                for my $rr ( @ns_rrs ) {
+                                    my @addrs;
+                                    if ( is_in_bailiwick( $rr->nsdname, $child_zone ) ) {
+                                        $aa_name_servers{ $rr->nsdname } //= {};
+                                        my @addrs = @{ $glue{ $rr->nsdname } };
+                                        for my $addr ( @addrs ) {
+                                            $aa_name_servers{ $rr->nsdname }{$addr} = 1;
+                                        }
+
+                                        # Step 7.4.4
+                                        if ( !@addrs ) {
+
+                                            # Step 7.4.4.1, 7.4.4.2 nad 7.4.4.3
+                                            $scheduler->handle(
+                                                lookup( $child_zone, [$parent_ns], $rr->nsdname ),
+                                                sub {
+                                                    my ( $addr ) = @_;
+
+                                                    # Step 7.4.4.4
+                                                    $aa_name_servers{ $rr->nsdname }{$addr} = 1;
+                                                }
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                );
+            }
+        );
+
+        # Step 9
+        $scheduler->defer(
+            [$actionid],
+            sub {
+                if ( !%delegation_name_servers ) {
+                    for my $nsdname ( sort keys %aa_name_servers ) {
+                        $scheduler->emit( $nsdname );
+                        for my $addr ( sort keys %{ $aa_name_servers{$nsdname} } ) {
+                            $scheduler->emit( $nsdname, $addr );
+                        }
+                    }
+                }
+            }
+        );
+    };
+}
+
+1;
