@@ -16,6 +16,7 @@ our @EXPORT_OK = qw(
     get_del_ns_names_and_ips
     get_del_ns_names
     get_del_ns_ips
+    get_zone_ns_names
 );
 
 sub eq_domain {
@@ -604,6 +605,43 @@ sub get_del_ns_ips {
                 if ( @addr ) {
                     $scheduler->produce( @addr );
                 }
+            }
+        );
+    }
+}
+
+sub get_zone_ns_names {
+    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+
+    return sub {
+        my ( $scheduler ) = @_;
+
+        my %nsdnames;
+
+        $scheduler->consume(
+            get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            sub {
+                my ( $addr ) = @_;
+
+                $scheduler->consume(
+                    query( server_ip => $addr, qname => $child_zone, qtype => 'NS' ),
+                    sub {
+                        my ( $ns_response ) = @_;
+
+                        if ( !defined $ns_response || !$ns_response->header->aa ) {
+                            return;
+                        }
+
+                        for my $rr ( $ns_response->answer ) {
+                            if ( $rr->type eq 'NS' && eq_domain( $rr->owner, $child_zone ) ) {
+                                if ( !exists $nsdnames{ $rr->nsdname } ) {
+                                    $nsdnames{ $rr->nsdname } = 1;
+                                    $scheduler->produce( $rr->nsdname );
+                                }
+                            }
+                        }
+                    }
+                );
             }
         );
     }
