@@ -13,6 +13,7 @@ sub new {
         _clients  => {},
         _pending  => [],
         _index    => 0,
+        _num_queries => 0,
     };
 
     return bless $self, $class;
