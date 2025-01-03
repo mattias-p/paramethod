@@ -19,7 +19,7 @@ Readonly my %command_types => (
         my ( $query ) = @_;
 
         my $client   = Net::DNS::Resolver->new( nameserver => $query->server_ip, recurse => 0 );
-        my $response = $client->send( $query->qname, $query->qtype );
+        my $response = $client->send( $query->new_packet );
 
         return $response;
     },

@@ -21,6 +21,7 @@ use My::DNS::MethodsV2 qw(
     get_del_ns_names
     get_del_ns_ips
     get_zone_ns_names
+    get_ib_addr_in_zone
 );
 use My::DNS::SequentialExecutor;
 use Pod::Usage;
@@ -96,6 +97,10 @@ Readonly my %METHOD_SETUPS => (
     'get-zone-ns-names' => sub {
         my ( $scheduler, $domain ) = @_;
         $scheduler->consume( get_zone_ns_names( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+    },
+    'get-ib-addr-in-zone' => sub {
+        my ( $scheduler, $domain ) = @_;
+        $scheduler->consume( get_ib_addr_in_zone( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
     },
 );
 

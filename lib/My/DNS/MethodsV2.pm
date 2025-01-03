@@ -17,6 +17,7 @@ our @EXPORT_OK = qw(
     get_del_ns_names
     get_del_ns_ips
     get_zone_ns_names
+    get_ib_addr_in_zone
 );
 
 sub eq_domain {
@@ -93,10 +94,9 @@ sub lookup {
         my $handle = sub {
             my ( $qtype, $packet ) = @_;
 
-            if ( defined $packet ) {
-                $qname = lc $qname =~ s/([^.])$/$1./r;
-                $qtype = uc $qtype;
+            $qname = lc $qname =~ s/([^.])$/$1./r;
 
+            if ( defined $packet ) {
                 for my $rr ( $packet->answer ) {
                     if ( eq_domain( $rr->owner, $qname ) && uc $rr->type eq $qtype ) {
                         $scheduler->produce( $rr->address );
@@ -105,8 +105,8 @@ sub lookup {
             }
         };
 
-        $scheduler->consume( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A' ),    sub { $handle->( 'A',    shift ) } );
-        $scheduler->consume( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA' ), sub { $handle->( 'AAAA', shift ) } );
+        $scheduler->consume( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A',    rd => 1 ), sub { $handle->( 'A',    shift ) } );
+        $scheduler->consume( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA', rd => 1 ), sub { $handle->( 'AAAA', shift ) } );
 
         return;
     };
@@ -642,6 +642,60 @@ sub get_zone_ns_names {
                         }
                     }
                 );
+            }
+        );
+    }
+}
+
+sub get_ib_addr_in_zone {
+    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+
+    return sub {
+        my ( $scheduler ) = @_;
+
+        my %addrs;
+
+        my $lookup_nsdname = sub {
+            my ( $server_ip, $nsdname ) = @_;
+
+            $scheduler->consume( lookup( $child_zone, [$server_ip], $nsdname ), sub {
+                my ( $addr ) = @_;
+
+                if ( !exists $addrs{$addr} ) {
+                    $addrs{$addr} = 1;
+
+                    $scheduler->produce( $addr );
+                }
+            });
+        };
+
+        # Call $query_addresses for the cross product of Get-Del-NS-IPs and the in-bailiwick names from Get-Zone-NS-Names
+        my @zone_ns_names;
+        my @del_ns_ips;
+        $scheduler->consume(
+            get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            sub {
+                my ( $nsdname ) = @_;
+
+                if ( is_in_bailiwick( $nsdname, $child_zone ) ) {
+                    push @zone_ns_names, $nsdname;
+
+                    for my $server_ip ( @del_ns_ips ) {
+                        $lookup_nsdname->( $server_ip, $nsdname );
+                    }
+                }
+            }
+        );
+        $scheduler->consume(
+            get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            sub {
+                my ( $server_ip ) = @_;
+
+                push @del_ns_ips, $server_ip;
+
+                for my $nsdname ( @zone_ns_names ) {
+                    $lookup_nsdname->( $server_ip, $nsdname );
+                }
             }
         );
     }

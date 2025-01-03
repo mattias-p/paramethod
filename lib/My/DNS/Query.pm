@@ -29,6 +29,8 @@ Constructs a new instance.
 
     my $query = query( server_ip => '9.9.9.9', qname => 'iis.se', qtype => 'A' );
 
+    my $query = query( server_ip => '9.9.9.9', qname => 'iis.se', qtype => 'A', rd => 1 );
+
 =cut
 
 sub query {
@@ -46,10 +48,19 @@ sub query {
         croak "missing required argument: qtype";
     }
 
+    if ( exists $args{rd} && ( !defined $args{rd} || ( $args{rd} ne '0' && $args{rd} ne '1' ) ) ) {
+        croak "invalid argument: rd";
+    }
+
+    if ( defined $args{qname} && ref $args{qname} ne '' || $args{qname} eq '' ) {
+        croak "argument must be a non-empty scalar: qname";
+    }
+
     my $obj = {
         server_ip => delete $args{server_ip},
         qname     => delete $args{qname},
         qtype     => delete $args{qtype},
+        rd        => delete $args{rd} // '0',
     };
 
     if ( %args ) {
@@ -81,7 +92,7 @@ The qtype to use in the query.
 
 =cut
 
-My::DNS::Query->mk_accessors( qw( server_ip qname qtype ) );
+My::DNS::Query->mk_accessors( qw( server_ip qname qtype rd ) );
 
 =head1 METHODS
 
@@ -92,7 +103,16 @@ My::DNS::Query->mk_accessors( qw( server_ip qname qtype ) );
 sub arg_strings {
     my ( $self ) = @_;
 
-    return $self->server_ip, lc $self->qname =~ s/(.)\.$/$1/r, uc $self->qtype;
+    return $self->server_ip, lc $self->qname =~ s/(.)\.$/$1/r, uc $self->qtype, 'rd=' . $self->rd;
+}
+
+sub new_packet {
+    my ( $self ) = @_;
+
+    my $packet = Net::DNS::Packet->new( $self->qname, $self->qtype );
+    $packet->header->rd( $self->rd );
+
+    return $packet;
 }
 
 1;

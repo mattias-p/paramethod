@@ -35,9 +35,7 @@ sub submit {
     $self->{_clients}{$server_ip} //= Net::DNS::Resolver->new( nameserver => $server_ip );
     my $client = $self->{_clients}{$server_ip};
 
-    my $packet = $self->_mk_packet( $command );
-
-    my $handle = $client->bgsend( $packet );
+    my $handle = $client->bgsend( $command->new_packet );
 
     push @{ $self->{_pending} }, [ $server_ip, $handle, $id, $command ];
 
