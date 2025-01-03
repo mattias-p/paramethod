@@ -18,6 +18,8 @@ our @EXPORT_OK = qw(
     get_del_ns_ips
     get_zone_ns_names
     get_ib_addr_in_zone
+    get_zone_ns_names_and_ips
+    get_zone_ns_ips
 );
 
 sub eq_domain {
@@ -518,7 +520,7 @@ sub get_oob_ips {
         # Step 3.1
         if ( $is_undelegated ) {
             for my $addr ( @$undelegated_data ) {
-                $scheduler->produce( $nsdname, $addr );
+                $scheduler->produce( $addr );
             }
         }
         else {
@@ -653,18 +655,18 @@ sub get_ib_addr_in_zone {
     return sub {
         my ( $scheduler ) = @_;
 
-        my %addrs;
-
         my $lookup_nsdname = sub {
             my ( $server_ip, $nsdname ) = @_;
+
+            state %seen;
 
             $scheduler->consume( lookup( $child_zone, [$server_ip], $nsdname ), sub {
                 my ( $addr ) = @_;
 
-                if ( !exists $addrs{$addr} ) {
-                    $addrs{$addr} = 1;
+                if ( !exists $seen{$addr} ) {
+                    $seen{$addr} = 1;
 
-                    $scheduler->produce( $addr );
+                    $scheduler->produce( $nsdname, $addr );
                 }
             });
         };
@@ -679,6 +681,8 @@ sub get_ib_addr_in_zone {
 
                 if ( is_in_bailiwick( $nsdname, $child_zone ) ) {
                     push @zone_ns_names, $nsdname;
+
+                    $scheduler->produce( $nsdname );
 
                     for my $server_ip ( @del_ns_ips ) {
                         $lookup_nsdname->( $server_ip, $nsdname );
@@ -699,6 +703,63 @@ sub get_ib_addr_in_zone {
             }
         );
     }
+}
+
+sub get_zone_ns_names_and_ips {
+    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+
+    return sub {
+        my ( $scheduler ) = @_;
+
+        $scheduler->consume(
+            get_ib_addr_in_zone( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            sub {
+                my ( $nsdname, @addr ) = @_;
+
+                $scheduler->produce( $nsdname, @addr );
+            }
+        );
+
+        $scheduler->consume(
+            get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            sub {
+                my ( $nsdname ) = @_;
+
+                if ( !is_in_bailiwick( $nsdname, $child_zone ) ) {
+                    $scheduler->produce( $nsdname );
+
+                    $scheduler->consume(
+                        get_oob_ips( $nsdname, $root_name_servers, $undelegated_data, $is_undelegated ),
+                        sub {
+                            my ( $addr ) = @_;
+
+                            $scheduler->produce( $nsdname, $addr );
+                        }
+                    );
+
+                }
+            }
+        );
+    };
+}
+
+sub get_zone_ns_ips {
+    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+
+    return sub {
+        my ( $scheduler ) = @_;
+
+        $scheduler->consume(
+            get_zone_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            sub {
+                my ( $nsdname, @addr ) = @_;
+
+                if ( @addr ) {
+                    $scheduler->produce( @addr );
+                }
+            }
+        );
+    };
 }
 
 1;
