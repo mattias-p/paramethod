@@ -14,17 +14,42 @@ use My::Concurrent::ExecutorProgress;
 use My::Concurrent::Scheduler;
 use My::DNS::BgExecutor;
 use My::DNS::ExecutorFilter;
-use My::DNS::MethodsV2 qw( get_parent_ns_ip get_delegation get_del_ns_names_and_ips );
+use My::DNS::MethodsV2 qw(
+    get_parent_ns_ip
+    get_delegation
+    get_del_ns_names_and_ips
+    get_del_ns_ips
+);
 use My::DNS::SequentialExecutor;
 use Pod::Usage;
 use Readonly;
 use Time::HiRes qw( time );
 
+my $opt_help         = 0;
+my $opt_verbose      = 0;
+my $opt_ipv4         = 1;
+my $opt_ipv6         = 1;
+my $opt_strategy     = 'bg';
+my $opt_list_methods = 0;
+
 sub output {
 
     my ( $format, @args ) = @_;
 
-    printf "%8.2fs  $format\n", time() - $begin_time, @args;
+    if ( $opt_verbose ) {
+        printf "%8.2fs  $format\n", time() - $begin_time, @args;
+    }
+    else {
+        printf "$format\n", @args;
+    }
+
+    return;
+}
+
+sub output_fields {
+    my @fields = @_;
+
+    output( "%s", join '  ', @fields );
 
     return;
 }
@@ -45,44 +70,28 @@ Readonly my %ROOT_NAME_SERVERS => (
     'm.root-servers.net.' => [ '202.12.27.33',   '2001:dc3::35' ],
 );
 
-sub output_fields {
-    my @fields = @_;
-
-    output "%s", join '  ', @fields;
-
-    return;
-}
-
 Readonly my %METHOD_SETUPS => (
     'get-parent-ns-ip' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume(
-            get_parent_ns_ip( $domain, \%ROOT_NAME_SERVERS ),
-            \&output_fields,
-        );
+        $scheduler->consume( get_parent_ns_ip( $domain, \%ROOT_NAME_SERVERS ), \&output_fields );
     },
     'get-delegation' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume(
-            get_delegation( $domain, \%ROOT_NAME_SERVERS, {}, 0 ),
-            \&output_fields,
-        );
+        $scheduler->consume( get_delegation( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
     },
     'get-del-ns-names-and-ips' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume(
-            get_del_ns_names_and_ips( $domain, \%ROOT_NAME_SERVERS, {}, 0 ),
-            \&output_fields,
-        );
+        $scheduler->consume( get_del_ns_names_and_ips( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+    },
+    'get-del-ns-names' => sub {
+        my ( $scheduler, $domain ) = @_;
+        $scheduler->consume( get_del_ns_names( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+    },
+    'get-del-ns-ips' => sub {
+        my ( $scheduler, $domain ) = @_;
+        $scheduler->consume( get_del_ns_ips( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
     },
 );
-
-my $opt_help         = 0;
-my $opt_verbose      = 0;
-my $opt_ipv4         = 1;
-my $opt_ipv6         = 1;
-my $opt_strategy     = 'bg';
-my $opt_list_methods = 0;
 
 GetOptions(
     'help|h'       => \$opt_help,
@@ -140,11 +149,15 @@ my $scheduler = My::Concurrent::Scheduler->new( $executor );
 
 $METHOD_SETUPS{$method}->( $scheduler, $domain );
 
-output("; starting");
+if ( $opt_verbose ) {
+    output("; starting");
+}
 
 $scheduler->run;
 
-output("; done");
+if ( $opt_verbose ) {
+    output("; done");
+}
 
 exit 0;
 
