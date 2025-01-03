@@ -95,14 +95,14 @@ sub lookup {
 
                 for my $rr ( $packet->answer ) {
                     if ( eq_domain( $rr->owner, $qname ) && uc $rr->type eq $qtype ) {
-                        $scheduler->emit( $rr->address );
+                        $scheduler->produce( $rr->address );
                     }
                 }
             }
         };
 
-        $scheduler->handle( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A' ),    sub { $handle->( 'A',    shift ) } );
-        $scheduler->handle( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA' ), sub { $handle->( 'AAAA', shift ) } );
+        $scheduler->consume( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A' ),    sub { $handle->( 'A',    shift ) } );
+        $scheduler->consume( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA' ), sub { $handle->( 'AAAA', shift ) } );
 
         return;
     };
@@ -141,7 +141,7 @@ sub get_parent_ns_ip {
         # Step 3
         my %handled_servers; # "Handled Servers"
         # Instead of adding pairs to "Remaining Servers", they are submitted to the scheduler to be handled by $handle_server.
-        # Instead of adding addresses to "Parent NS IP", they are emitted from this task.
+        # Instead of adding addresses to "Parent NS IP", they are produced from this task.
 
         # Step 4
         $process_root_servers = sub {
@@ -169,7 +169,7 @@ sub get_parent_ns_ip {
             my $zone_name_ns_query  = query( server_ip => $server_address, qname => $zone_name, qtype => 'NS' );
 
             # Step 5.4
-            $scheduler->handle(
+            $scheduler->consume(
                 $zone_name_soa_query,
                 sub {
                     my ( $soa_response ) = @_;
@@ -186,7 +186,7 @@ sub get_parent_ns_ip {
                     }
 
                     # Step 5.6
-                    $scheduler->handle(
+                    $scheduler->consume(
                         $zone_name_ns_query,
                         sub {
                             my ( $ns_response ) = @_;
@@ -241,7 +241,7 @@ sub get_parent_ns_ip {
                     # Step 5.9
                     # Step 5.11.5.2.5
                     # Step 5.11.6.2.2
-                    $scheduler->handle(
+                    $scheduler->consume(
                         lookup( '.', \@root_ns_ips, $rr->nsdname ),
                         sub {
                             my ( $addr ) = @_;
@@ -279,7 +279,7 @@ sub get_parent_ns_ip {
             my $intermediate_soa_query = query( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'SOA' );
 
             # Step 5.11.3
-            $scheduler->handle(
+            $scheduler->consume(
                 $intermediate_soa_query,
                 sub {
                     my ( $soa_response ) = @_;
@@ -296,7 +296,7 @@ sub get_parent_ns_ip {
                         if ( $intermediate_query_name eq $child_zone ) {
 
                             # Step 5.11.5.1.1 and 6
-                            $scheduler->emit( $server_address );
+                            $scheduler->produce( $server_address );
 
                             # Step 5.11.5.1.2
                             return;
@@ -306,7 +306,7 @@ sub get_parent_ns_ip {
                         my $intermediate_ns_query = query( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'NS' );
 
                         # Step 5.11.5.2.2
-                        $scheduler->handle(
+                        $scheduler->consume(
                             $intermediate_ns_query,
                             sub {
                                 my ( $ns_response ) = @_;
@@ -323,7 +323,7 @@ sub get_parent_ns_ip {
                         if ( $intermediate_query_name eq $child_zone ) {
 
                             # Step 5.11.6.1.1 and 6
-                            $scheduler->emit( $server_address );
+                            $scheduler->produce( $server_address );
                         }
                         else {
 
@@ -369,9 +369,9 @@ sub get_delegation {
 
             # Step 1.1-1.6
             for my $nsdname ( sort keys @{$undelegated_data} ) {
-                $scheduler->emit( $nsdname );
+                $scheduler->produce( $nsdname );
                 for my $addr ( @{ $undelegated_data->{$nsdname} } ) {
-                    $scheduler->emit( $nsdname, $addr );
+                    $scheduler->produce( $nsdname, $addr );
                 }
             }
 
@@ -382,9 +382,9 @@ sub get_delegation {
         # Step 2
         if ( eq_domain( $child_zone, '.' ) ) {
             for my $nsdname ( sort keys @{$root_name_servers} ) {
-                $scheduler->emit( $nsdname );
+                $scheduler->produce( $nsdname );
                 for my $addr ( @{ $root_name_servers->{$nsdname} } ) {
-                    $scheduler->emit( $nsdname, $addr );
+                    $scheduler->produce( $nsdname, $addr );
                 }
             }
 
@@ -396,7 +396,7 @@ sub get_delegation {
         my %aa_name_servers;
 
         # Step 3 and 7
-        my $actionid = $scheduler->handle(
+        my $actionid = $scheduler->consume(
             get_parent_ns_ip( $child_zone, $root_name_servers, $is_undelegated ),
             sub {
                 my ( $parent_ns ) = @_;
@@ -405,7 +405,7 @@ sub get_delegation {
                 my $ns_query = query( server_ip => $parent_ns, qname => $child_zone, qtype => 'NS' );
 
                 # Step 7.1
-                $scheduler->handle(
+                $scheduler->consume(
                     $ns_query,
                     sub {
                         my ( $ns_response ) = @_;
@@ -429,12 +429,12 @@ sub get_delegation {
                                     # Step 7.3.3 and 7.3.3.1
                                     if ( !exists $delegation_name_servers{ $rr->nsdname } ) {
                                         $delegation_name_servers{ $rr->nsdname } = {};
-                                        $scheduler->emit( $rr->nsdname );
+                                        $scheduler->produce( $rr->nsdname );
                                     }
                                     for my $addr ( @{ $glue{ $rr->nsdname } // [] } ) {
                                         if ( !exists $delegation_name_servers{ $rr->nsdname }{$addr} ) {
                                             $delegation_name_servers{ $rr->nsdname }{$addr} = 1;
-                                            $scheduler->emit( $rr->nsdname, $addr );
+                                            $scheduler->produce( $rr->nsdname, $addr );
                                         }
                                     }
                                 }
@@ -465,7 +465,7 @@ sub get_delegation {
                                         if ( !@addrs ) {
 
                                             # Step 7.4.4.1, 7.4.4.2 nad 7.4.4.3
-                                            $scheduler->handle(
+                                            $scheduler->consume(
                                                 lookup( $child_zone, [$parent_ns], $rr->nsdname ),
                                                 sub {
                                                     my ( $addr ) = @_;
@@ -490,9 +490,9 @@ sub get_delegation {
             sub {
                 if ( !%delegation_name_servers ) {
                     for my $nsdname ( sort keys %aa_name_servers ) {
-                        $scheduler->emit( $nsdname );
+                        $scheduler->produce( $nsdname );
                         for my $addr ( sort keys %{ $aa_name_servers{$nsdname} } ) {
-                            $scheduler->emit( $nsdname, $addr );
+                            $scheduler->produce( $nsdname, $addr );
                         }
                     }
                 }

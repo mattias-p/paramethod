@@ -10,26 +10,19 @@ use Test::Exception;
 
 my $executor = My::FifoExecutor->new;
 
-=pod
+lives_and {
+    my @results = My::Scheduler->new( $executor )->run;
 
-subtest 'noop' => sub {
+    eq_or_diff \@results, [];
+} 'noop';
+
+subtest 'top level production' => sub {
     lives_and {
-        my @results = block_on( $executor, sub { } );
-        eq_or_diff \@results, [];
-    };
-};
+        my $scheduler = My::Scheduler->new( $executor );
+        $scheduler->produce( 123 );
+        $scheduler->produce( 456 );
 
-subtest 'top level emit' => sub {
-    lives_and {
-        my @results = block_on(
-            $executor,
-            sub {
-                my ( $scheduler ) = @_;
-
-                $scheduler->emit( 123 );
-                $scheduler->emit( 456 );
-            }
-        );
+        my @results = $scheduler->run;
 
         eq_or_diff \@results, [ [123], [456] ];
     };
@@ -37,52 +30,46 @@ subtest 'top level emit' => sub {
 
 subtest 'task' => sub {
     lives_and {
-        my @handled;
-        my @returned = block_on(
-            $executor,
+        my $producer = sub {
+            my ( $scheduler ) = @_;
+            $scheduler->produce( 123 );
+        };
+
+        my @consumed;
+        my $scheduler = My::Scheduler->new( $executor );
+        $scheduler->consume(
+            $producer,
             sub {
-                my ( $scheduler ) = @_;
-
-                my $bootstrap = sub {
-                    $scheduler->emit( 123 );
-                };
-
-                my $handler = sub {
-                    push @handled, \@_;
-                    $scheduler->emit( 456 );
-                };
-
-                $scheduler->handle( $bootstrap, $handler );
-            },
+                push @consumed, \@_;
+                $scheduler->produce( 456 );
+            }
         );
 
-        eq_or_diff                                              #
-          { handled => \@handled, returned => \@returned, },    #
-          { handled => [ [123] ], returned => [ [456] ], };
+        my @returned = $scheduler->run;
+
+        eq_or_diff                                                #
+          { consumed => \@consumed, returned => \@returned, },    #
+          { consumed => [ [123] ], returned => [ [456] ], };
     };
 };
 
 subtest 'defer' => sub {
     lives_and {
-        my @returned = block_on(
-            $executor,
+        my $scheduler = My::Scheduler->new( $executor );
+        $scheduler->defer(
+            [],
             sub {
-                my ( $scheduler ) = @_;
-
-                my $actionid = $scheduler->defer(
-                    [],
-                    sub {
-                        $scheduler->emit( 123 );
-                    }
-                );
-                $scheduler->defer(
-                    [],
-                    sub {
-                        $scheduler->emit( 456 );
-                    }
-                );
-            },
+                $scheduler->produce( 123 );
+            }
         );
+        $scheduler->defer(
+            [],
+            sub {
+                $scheduler->produce( 456 );
+            }
+        );
+
+        my @returned = $scheduler->run;
 
         eq_or_diff                                                        #
           { returned => [ sort { $a->[0] <=> $b->[0] } @returned ], },    #
@@ -90,29 +77,23 @@ subtest 'defer' => sub {
     };
 };
 
-=cut
-
 subtest 'dependency' => sub {
     lives_and {
-        my @returned = block_on(
-            $executor,
+        my $scheduler = My::Scheduler->new( $executor );
+        my $taskid = $scheduler->defer(
+            [],
             sub {
-                my ( $scheduler ) = @_;
-
-                my $actionid = $scheduler->defer(
-                    [],
-                    sub {
-                        $scheduler->emit( 123 );
-                    }
-                );
-                $scheduler->defer(
-                    [$actionid],
-                    sub {
-                        $scheduler->emit( 456 );
-                    }
-                );
-            },
+                $scheduler->produce( 123 );
+            }
         );
+        $scheduler->defer(
+            [$taskid],
+            sub {
+                $scheduler->produce( 456 );
+            }
+        );
+
+        my @returned = $scheduler->run;
 
         eq_or_diff                             #
           { returned => \@returned, },         #

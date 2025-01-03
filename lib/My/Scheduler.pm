@@ -1,7 +1,7 @@
 
 =head1 NAME
 
-My::Scheduler - TODO
+My::Scheduler - Implements cooperative multi-tasking.
 
 =cut
 
@@ -15,153 +15,193 @@ use Scalar::Util qw( blessed looks_like_number );
 
 our @EXPORT_OK = qw( block_on );
 
-=head1 SUBROUTINES
+=head1 CONSTRUCTORS
 
-=head2 block_on()
+=head2 new EXECUTOR
 
-    use My::Scheduler qw( block_on );
+Construct an instance that delegates commands to EXECUTOR.
 
-    block_on( $executor, sub {
-        my ( $scheduler ) = @_;
+    my $scheduler = My::Scheduler->new( $executor );
 
-        ...
-    });
+The EXECUTOR must implement My::Executor.
+Exclusive control over EXECUTOR is assumed.
 
 =cut
 
-sub block_on {
-    my ( $executor, $bootstrap ) = @_;
+sub new {
+    my ( $class, $executor ) = @_;
+
+    if ( !blessed $executor || !$executor->isa( 'My::Executor' ) ) {
+        croak "executor argument must be a My::Executor";
+    }
 
     my $scheduler = {
-        _executor    => $executor,
-        _num_actions => 0,
-        _cur_action  => 0,
-        _cur_task    => 0,
-        _actions     => {},
-        _pending     => [],
+        _executor     => $executor,
+        _num_tasks    => 0,
+        _cur_task     => 0,
+        _cur_consumer => 0,
+        _tasks        => {},
+        _pending      => [],
+        _results      => [],
     };
 
-    bless $scheduler, 'My::Scheduler';
-
-    my @results;
-
-    $scheduler->handle( $bootstrap, sub {
-        my ( @result ) = @_;
-
-        push @results, \@result;
-    });
-
-    $scheduler->_run();
-
-    return @results;
+    return bless $scheduler, $class;
 }
 
 =head1 METHODS
 
-executor->await returns:
-'close', actionid
-'return', actionid, results
-'yield', actionid, results
+=head2 produce LIST
 
-=head2 submit()
+Produce a result.
 
-    $scheduler->submit( [], $action, sub {
+    $scheduler->produce( @result );
+
+=cut
+
+sub produce {
+    my ( $self, @result ) = @_;
+
+    if ( $self->{_cur_consumer} == 0 ) {
+        push @{ $self->{_results} }, \@result;
+    }
+    else {
+        my $taskid = $self->{_cur_consumer};
+        push @{ $self->{_tasks}{$taskid}{results} }, \@result;
+        push @{ $self->{_pending} },                 $taskid;
+    }
+
+    return;
+}
+
+=head2 consume PRODUCER, CONSUMER
+
+Schedule a consumer task with an attached producer.
+
+    my $coderef = sub {
+        my ( $scheduler ) = @_;
+        ...
+    };
+    $scheduler->consume( $coderef, sub {
         my ( @result ) = @_;
-
         ...
     });
+
+    $scheduler->consume( $command, sub {
+        my ( @result ) = @_;
+        ...
+    });
+
+The PRODUCER may be a coderef. The coderef is called with the My::Scheduler instance as
+its only argument.
+The PRODUCER may be a My::Command instance. The instance is submitted to the executor.
+For each result produced by the PRODUCER, the CONSUMER is called with the result as its
+arguments.
+
+Returns a task id.
+
+=cut
+
+sub consume {
+    my ( $self, $producer, $consumer ) = @_;
+
+    if ( ref $consumer ne 'CODE' ) {
+        croak "CONSUMER argument must be a coderef";
+    }
+
+    if ( blessed $producer && $producer->isa( 'My::Command' ) ) {
+        return $self->_task( [], $consumer, command => $producer );
+    }
+
+    if ( ref $producer eq 'CODE' ) {
+        return $self->_task(
+            [],
+            $consumer,
+            producer => $producer,
+            results  => [],
+        );
+    }
+
+    croak "PRODUCER argument must be either a My::Command or a coderef";
+}
+
+=head2 defer DEPENDENCIES, ACTION
+
+Schedule an action task.
+
+    $scheduler->defer( \@dependencies, sub {
+        ...
+    });
+
+DEPENDENCIES is an arrayref of task ids.
+ACTION is a coderef. It is called without arguments once all DEPENDENCIES have completed.
+
+Returns a task id.
 
 =cut
 
 sub defer {
-    my ( $self, $dependencies, $callback ) = @_;
+    my ( $self, $dependencies, $action ) = @_;
 
     if ( ref $dependencies ne 'ARRAY' ) {
-        croak "dependencies argument to defer() must be an arrayref";
+        croak "dependencies argument must be an arrayref";
     }
-    if ( ref $callback ne 'CODE' ) {
-        croak "callback argument to defer() must be a coderef";
+    if ( ref $action ne 'CODE' ) {
+        croak "action argument must be a coderef";
     }
 
-    return $self->_action( $dependencies, $callback );
+    return $self->_task( $dependencies, $action );
 }
 
-sub handle {
-    my ( $self, $action, $handler ) = @_;
+=head2 run
 
-    if ( ref $handler ne 'CODE' ) {
-        croak "handler argument to handle() must be a coderef";
-    }
+Run the scheduled tasks until there are no more uncompleted tasks.
 
-    if ( blessed $action && $action->isa( 'My::Command' ) ) {
-        return $self->_action( [], $handler, command => $action );
-    }
+    my @results = $scheduler->run;
 
-    if ( ref $action eq 'CODE' ) {
-        return $self->_action(
-            [],
-            $handler,
-            bootstrap => $action,
-            emissions => [],
-        );
-    }
+Returns a list of unconsumed results. Each result is returned as an arrayref.
 
-    croak "action argument to handle() must be either a My::Command or a coderef";
-}
+=cut
 
-sub emit {
-    my ( $self, @args ) = @_;
-
-    if ( $self->{_cur_task} == 0 ) {
-        croak "no active task";
-    }
-
-    my $task = $self->{_cur_task};
-    push @{ $self->{_actions}{$task}{emissions} }, \@args;
-    push @{ $self->{_pending} },                   $task;
-
-    return;
-}
-
-sub _run {
+sub run {
     my ( $self ) = @_;
 
     while ( 1 ) {
-        while ( my $actionid = shift @{ $self->{_pending} } ) {
-            $self->_handle( $actionid );
+        while ( my $taskid = shift @{ $self->{_pending} } ) {
+            $self->_handle( $taskid );
         }
 
-        last if !%{ $self->{_actions} };
+        last if !%{ $self->{_tasks} };
 
-        my ( $op, $actionid, undef, @result ) = $self->{_executor}->await;
+        my ( $op, $taskid, undef, @result ) = $self->{_executor}->await;
 
-        if ( !looks_like_number($actionid) ) {
-            croak "actionid must look like number";
+        if ( !looks_like_number( $taskid ) ) {
+            croak "taskid must look like number";
         }
 
         if ( $op eq 'close' ) {
-            $self->_finalize( $actionid );
+            $self->_finalize( $taskid );
         }
         else {
-            $self->{_actions}{$actionid}{result} = \@result;
-            push @{ $self->{_pending} }, $actionid;
+            $self->{_tasks}{$taskid}{result} = \@result;
+            push @{ $self->{_pending} }, $taskid;
         }
     }
 
-    return;
+    ( my $results, $self->{_results} ) = ( $self->{_results}, [] );
+    return @$results;
 }
 
-sub _action {
+sub _task {
     my ( $self, $dependencies, $handler, %properties ) = @_;
 
-    my $actionid = ++$self->{_num_actions};
+    my $taskid = ++$self->{_num_tasks};
 
     my %dependencies = map { $_ => undef } @{$dependencies};
-    my $parent       = $self->{_cur_action};
+    my $parent       = $self->{_cur_task};
 
-    $self->{_actions}{$actionid} = {
+    $self->{_tasks}{$taskid} = {
         %properties,
-        task             => $self->{_cur_task},
+        consumer         => $self->{_cur_consumer},
         handler          => $handler,
         num_dependencies => scalar @{$dependencies},
         num_children     => 0,
@@ -170,119 +210,119 @@ sub _action {
     };
 
     if ( $parent ) {
-        $self->{_actions}{$parent}{num_children}++;
+        $self->{_tasks}{$parent}{num_children}++;
     }
 
     for my $dependency ( keys %dependencies ) {
-        push @{ $self->{_actions}{$dependency}{dependents} }, $actionid;
+        push @{ $self->{_tasks}{$dependency}{dependents} }, $taskid;
     }
 
     if ( !%dependencies ) {
-        $self->_start( $actionid );
+        $self->_start( $taskid );
     }
 
-    return $actionid;
+    return $taskid;
 }
 
 sub _start {
-    my ( $self, $actionid ) = @_;
+    my ( $self, $taskid ) = @_;
 
-    if ( !looks_like_number($actionid) ) {
-        croak "actionid must look like number";
+    if ( !looks_like_number( $taskid ) ) {
+        croak "taskid must look like number";
     }
 
-    my $action = $self->{_actions}{$actionid};
+    my $task = $self->{_tasks}{$taskid};
 
-    if ( exists $action->{command} ) {
-        $self->{_executor}->submit( $actionid, $action->{command} );
+    if ( exists $task->{command} ) {
+        $self->{_executor}->submit( $taskid, $task->{command} );
     }
-    elsif ( exists $action->{bootstrap} ) {
-        local $self->{_cur_action} = $actionid;
-        local $self->{_cur_task}   = $actionid;
-        $action->{bootstrap}( $self );
-        $self->_finalize( $actionid );
+    elsif ( exists $task->{producer} ) {
+        local $self->{_cur_task}     = $taskid;
+        local $self->{_cur_consumer} = $taskid;
+        $task->{producer}( $self );
+        $self->_finalize( $taskid );
     }
     else {
-        push @{ $self->{_pending} }, $actionid;
+        push @{ $self->{_pending} }, $taskid;
     }
 
     return;
 }
 
 sub _handle {
-    my ( $self, $actionid ) = @_;
+    my ( $self, $taskid ) = @_;
 
-    if ( !looks_like_number($actionid) ) {
-        croak "actionid must look like number";
+    if ( !looks_like_number( $taskid ) ) {
+        croak "taskid must look like number";
     }
 
-    if ( !exists $self->{_actions}{$actionid} ) {
-        croak "attempting to handle unknown action ($actionid)";
+    if ( !exists $self->{_tasks}{$taskid} ) {
+        croak "attempting to handle unknown task ($taskid)";
     }
 
-    my $action  = $self->{_actions}{$actionid};
-    my $handler = $action->{handler};
-    local $self->{_cur_action} = $actionid;
-    local $self->{_cur_task}   = $action->{task};
+    my $task    = $self->{_tasks}{$taskid};
+    my $handler = $task->{handler};
+    local $self->{_cur_task}     = $taskid;
+    local $self->{_cur_consumer} = $task->{consumer};
 
-    if ( exists $action->{bootstrap} ) {
-        my $args = shift @{ $action->{emissions} };
+    if ( exists $task->{producer} ) {
+        my $args = shift @{ $task->{results} };
         $handler->( @$args );
     }
-    elsif ( exists $action->{result} ) {
-        $handler->( @{ $action->{result} } );
+    elsif ( exists $task->{result} ) {
+        $handler->( @{ $task->{result} } );
     }
     else {
         $handler->();
     }
 
-    $self->_finalize( $actionid );
+    $self->_finalize( $taskid );
 
     return;
 }
 
 sub _finalize {
-    my ( $self, $actionid ) = @_;
+    my ( $self, $taskid ) = @_;
 
-    my @actionids;
-    if ( !$self->_is_needed( $actionid ) ) {
-        push @actionids, $actionid;
+    my @taskids;
+    if ( !$self->_is_needed( $taskid ) ) {
+        push @taskids, $taskid;
     }
 
-    for my $actionid ( @actionids ) {
-        my $parent       = $self->{_actions}{$actionid}{parent};
-        my @dependents = @{ $self->{_actions}{$actionid}{dependents} };
+    for my $taskid ( @taskids ) {
+        my $parent     = $self->{_tasks}{$taskid}{parent};
+        my @dependents = @{ $self->{_tasks}{$taskid}{dependents} };
 
         if ( $parent != 0 ) {
-            $self->{_actions}{$parent}{num_children}--;
+            $self->{_tasks}{$parent}{num_children}--;
             if ( !$self->_is_needed( $parent ) ) {
-                push @actionids, $parent;
+                push @taskids, $parent;
             }
         }
 
         for my $dependent ( @dependents ) {
-            $self->{_actions}{$dependent}{num_dependencies}--;
-            if ( $self->{_actions}{$dependent}{num_dependencies} == 0 ) {
+            $self->{_tasks}{$dependent}{num_dependencies}--;
+            if ( $self->{_tasks}{$dependent}{num_dependencies} == 0 ) {
                 push @{ $self->{_pending} }, $dependent;
             }
         }
 
-        delete $self->{_actions}{$actionid};
+        delete $self->{_tasks}{$taskid};
     }
 
     return;
 }
 
 sub _is_needed {
-    my ( $self, $actionid ) = @_;
+    my ( $self, $taskid ) = @_;
 
-    if ( $actionid == 0 ) {
+    if ( $taskid == 0 ) {
         return 1;
     }
 
-    my $action = $self->{_actions}{$actionid};
+    my $task = $self->{_tasks}{$taskid};
 
-    return $action->{num_children} > 0 || $action->{num_dependencies} > 0 || @{ $action->{emissions} // [] };
+    return $task->{num_children} > 0 || $task->{num_dependencies} > 0 || @{ $task->{results} // [] };
 }
 
 1;

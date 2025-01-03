@@ -8,6 +8,8 @@ package My::FifoExecutor;
 use 5.016;
 use warnings;
 
+use parent 'My::Executor';
+
 use Carp qw( croak );
 use My::Query;
 use Net::DNS;
