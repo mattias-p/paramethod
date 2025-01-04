@@ -11,7 +11,7 @@ our @EXPORT_OK = qw(
     eq_domain
     ne_domain
     lookup
-    get_parent_ns_ip
+    get_parent_ns_ips
     get_delegation
     get_del_ns_names_and_ips
     get_del_ns_names
@@ -114,11 +114,11 @@ sub lookup {
     };
 }
 
-sub get_parent_ns_ip {
+sub get_parent_ns_ips {
     my ( $child_zone, $root_name_servers, $is_undelegated ) = @_;
 
     if ( ref $root_name_servers ne 'HASH' ) {
-        croak "root_name_servers argument to get_parent_ns_ip() must be a hashref";
+        croak "root_name_servers argument must be a hashref";
     }
 
     $child_zone =~ s/([^.])$/$1./;
@@ -365,16 +365,16 @@ sub get_parent_ns_ip {
 }
 
 sub get_delegation {
-    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+    my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
 
         # Step 1
-        if ( $is_undelegated ) {
+        if ( %$undelegated_data != 0 ) {
 
             # Step 1.1-1.6
-            for my $nsdname ( sort keys @{$undelegated_data} ) {
+            for my $nsdname ( sort keys %{$undelegated_data} ) {
                 $scheduler->produce( $nsdname );
                 for my $addr ( @{ $undelegated_data->{$nsdname} } ) {
                     $scheduler->produce( $nsdname, $addr );
@@ -387,7 +387,7 @@ sub get_delegation {
 
         # Step 2
         if ( eq_domain( $child_zone, '.' ) ) {
-            for my $nsdname ( sort keys @{$root_name_servers} ) {
+            for my $nsdname ( sort keys %{$root_name_servers} ) {
                 $scheduler->produce( $nsdname );
                 for my $addr ( @{ $root_name_servers->{$nsdname} } ) {
                     $scheduler->produce( $nsdname, $addr );
@@ -403,7 +403,7 @@ sub get_delegation {
 
         # Step 3 and 7
         my $actionid = $scheduler->consume(
-            get_parent_ns_ip( $child_zone, $root_name_servers, $is_undelegated ),
+            get_parent_ns_ips( $child_zone, $root_name_servers, %$undelegated_data != 0 ),
             sub {
                 my ( $parent_ns ) = @_;
 
@@ -512,13 +512,13 @@ sub get_delegation {
 }
 
 sub get_oob_ips {
-    my ( $nsdname, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+    my ( $nsdname, $root_name_servers, $undelegated_data ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
 
         # Step 3.1
-        if ( $is_undelegated ) {
+        if ( %$undelegated_data != 0 ) {
             for my $addr ( @$undelegated_data ) {
                 $scheduler->produce( $addr );
             }
@@ -536,14 +536,14 @@ sub get_oob_ips {
 }
 
 sub get_del_ns_names_and_ips {
-    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+    my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
 
         # Step 1
         $scheduler->consume(
-            get_delegation( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            get_delegation( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;
 
@@ -559,7 +559,7 @@ sub get_del_ns_names_and_ips {
 
                         # Step 5
                         $scheduler->consume(
-                            get_oob_ips( $nsdname, $root_name_servers, $undelegated_data, $is_undelegated ),
+                            get_oob_ips( $nsdname, $root_name_servers, $undelegated_data ),
                             sub {
                                 my ( $addr ) = @_;
 
@@ -575,13 +575,13 @@ sub get_del_ns_names_and_ips {
 }
 
 sub get_del_ns_names {
-    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+    my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
 
         $scheduler->consume(
-            get_delegation( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            get_delegation( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;
 
@@ -594,13 +594,13 @@ sub get_del_ns_names {
 }
 
 sub get_del_ns_ips {
-    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+    my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
 
         $scheduler->consume(
-            get_del_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            get_del_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;
 
@@ -613,7 +613,7 @@ sub get_del_ns_ips {
 }
 
 sub get_zone_ns_names {
-    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+    my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
@@ -621,7 +621,7 @@ sub get_zone_ns_names {
         my %nsdnames;
 
         $scheduler->consume(
-            get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $addr ) = @_;
 
@@ -650,7 +650,7 @@ sub get_zone_ns_names {
 }
 
 sub get_ib_addr_in_zone {
-    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+    my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
@@ -675,7 +675,7 @@ sub get_ib_addr_in_zone {
         my @zone_ns_names;
         my @del_ns_ips;
         $scheduler->consume(
-            get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname ) = @_;
 
@@ -691,7 +691,7 @@ sub get_ib_addr_in_zone {
             }
         );
         $scheduler->consume(
-            get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $server_ip ) = @_;
 
@@ -706,13 +706,13 @@ sub get_ib_addr_in_zone {
 }
 
 sub get_zone_ns_names_and_ips {
-    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+    my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
 
         $scheduler->consume(
-            get_ib_addr_in_zone( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            get_ib_addr_in_zone( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;
 
@@ -721,7 +721,7 @@ sub get_zone_ns_names_and_ips {
         );
 
         $scheduler->consume(
-            get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname ) = @_;
 
@@ -729,7 +729,7 @@ sub get_zone_ns_names_and_ips {
                     $scheduler->produce( $nsdname );
 
                     $scheduler->consume(
-                        get_oob_ips( $nsdname, $root_name_servers, $undelegated_data, $is_undelegated ),
+                        get_oob_ips( $nsdname, $root_name_servers, $undelegated_data ),
                         sub {
                             my ( $addr ) = @_;
 
@@ -744,13 +744,13 @@ sub get_zone_ns_names_and_ips {
 }
 
 sub get_zone_ns_ips {
-    my ( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ) = @_;
+    my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
     return sub {
         my ( $scheduler ) = @_;
 
         $scheduler->consume(
-            get_zone_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data, $is_undelegated ),
+            get_zone_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;
 

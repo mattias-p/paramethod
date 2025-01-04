@@ -11,7 +11,7 @@ use My::DNS::ExecutorDiagnostics;
 use My::DNS::ExecutorFilter;
 use My::DNS::FgExecutor;
 use My::DNS::MethodsV2 qw(
-    get_parent_ns_ip
+    get_parent_ns_ips
     get_delegation
     get_del_ns_names_and_ips
     get_del_ns_names
@@ -75,39 +75,39 @@ Readonly my %ROOT_NAME_SERVERS => (
 Readonly my %METHOD_SETUPS => (
     'get-parent-ns-ip' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume( get_parent_ns_ip( $domain, \%ROOT_NAME_SERVERS ), \&output_fields );
+        $scheduler->consume( get_parent_ns_ips( $domain, \%ROOT_NAME_SERVERS ), \&output_fields );
     },
     'get-delegation' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume( get_delegation( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+        $scheduler->consume( get_delegation( $domain, \%ROOT_NAME_SERVERS, {} ), \&output_fields );
     },
     'get-del-ns-names-and-ips' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume( get_del_ns_names_and_ips( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+        $scheduler->consume( get_del_ns_names_and_ips( $domain, \%ROOT_NAME_SERVERS, {} ), \&output_fields );
     },
     'get-del-ns-names' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume( get_del_ns_names( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+        $scheduler->consume( get_del_ns_names( $domain, \%ROOT_NAME_SERVERS, {} ), \&output_fields );
     },
     'get-del-ns-ips' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume( get_del_ns_ips( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+        $scheduler->consume( get_del_ns_ips( $domain, \%ROOT_NAME_SERVERS, {} ), \&output_fields );
     },
     'get-zone-ns-names' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume( get_zone_ns_names( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+        $scheduler->consume( get_zone_ns_names( $domain, \%ROOT_NAME_SERVERS, {} ), \&output_fields );
     },
     'get-ib-addr-in-zone' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume( get_ib_addr_in_zone( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+        $scheduler->consume( get_ib_addr_in_zone( $domain, \%ROOT_NAME_SERVERS, {} ), \&output_fields );
     },
     'get-zone-ns-names-and-ips' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume( get_zone_ns_names_and_ips( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+        $scheduler->consume( get_zone_ns_names_and_ips( $domain, \%ROOT_NAME_SERVERS, {} ), \&output_fields );
     },
     'get-zone-ns-ips' => sub {
         my ( $scheduler, $domain ) = @_;
-        $scheduler->consume( get_zone_ns_ips( $domain, \%ROOT_NAME_SERVERS, {}, 0 ), \&output_fields );
+        $scheduler->consume( get_zone_ns_ips( $domain, \%ROOT_NAME_SERVERS, {} ), \&output_fields );
     },
 );
 
