@@ -1,10 +1,10 @@
 =head1 NAME
 
-My::DNS::SequentialExecutor - Executes commands sequentially.
+My::DNS::FgExecutor - Executes commands sequentially.
 
 =cut
 
-package My::DNS::SequentialExecutor;
+package My::DNS::FgExecutor;
 use 5.016;
 use warnings;
 
@@ -25,7 +25,7 @@ the foreground.
 
 Construct a new instance.
 
-    my $executor = My::DNS::SequentialExecutor->new;
+    my $executor = My::DNS::FgExecutor->new;
 
 =cut
 

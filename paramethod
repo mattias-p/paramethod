@@ -15,6 +15,7 @@ use My::Concurrent::Scheduler;
 use My::DNS::BgExecutor;
 use My::DNS::ExecutorDiagnostics;
 use My::DNS::ExecutorFilter;
+use My::DNS::FgExecutor;
 use My::DNS::MethodsV2 qw(
     get_parent_ns_ip
     get_delegation
@@ -26,7 +27,6 @@ use My::DNS::MethodsV2 qw(
     get_zone_ns_names_and_ips
     get_zone_ns_ips
 );
-use My::DNS::SequentialExecutor;
 use Pod::Usage;
 use Readonly;
 use Time::HiRes qw( time );
@@ -136,7 +136,7 @@ if ( $opt_list_methods ) {
     exit 0;
 }
 
-if ( $opt_strategy !~ /^(bg|seq)$/ ) {
+if ( $opt_strategy !~ /^(bg|fg)$/ ) {
     pod2usage( "invalid --strategy argument" );
 }
 
@@ -156,7 +156,7 @@ if ( $opt_strategy eq 'bg' ) {
     $executor = My::DNS::BgExecutor->new( timeout => $opt_timeout );
 }
 else {
-    $executor = My::DNS::SequentialExecutor->new( timeout => $opt_timeout );
+    $executor = My::DNS::FgExecutor->new( timeout => $opt_timeout );
 }
 
 if ( $opt_verbose ) {
@@ -230,11 +230,11 @@ Default: enabled.
 
 =item -s STRATEGY, --strategy=STRATEGY
 
-Select command execution strategy.
+Select DNS transaction strategy.
 Default: bg
 
-Valid values are C<bg> for running commands concurrently in the background and C<seq> for
-running commands sequentially one after another.
+Valid values are C<bg> for concurrently starting multiple transactions, and C<fg> for
+blocking to wait for each transaction.
 
 =item -t SECONDS, --timeout SECONDS
 
