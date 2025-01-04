@@ -296,7 +296,7 @@ sub get_parent_ns_ip {
                     }
 
                     # Step 5.11.5
-                    my @soa_rrs = grep { $_->type eq 'SOA' && ne_domain( $_->owner, $intermediate_query_name ) } $soa_response->answer;
+                    my @soa_rrs = grep { $_->type eq 'SOA' && eq_domain( $_->owner, $intermediate_query_name ) } $soa_response->answer;
                     if ( @soa_rrs == 1 && $soa_response->header->aa && $soa_response->header->rcode eq 'NOERROR' ) {
                         # Step 5.11.5.1
                         if ( $intermediate_query_name eq $child_zone ) {

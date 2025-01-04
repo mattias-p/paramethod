@@ -172,11 +172,11 @@ if ( !$opt_ipv4 || !$opt_ipv6 ) {
 
 my $scheduler = My::Concurrent::Scheduler->new( $executor );
 
-$METHOD_SETUPS{$method}->( $scheduler, $domain );
-
 if ( $opt_verbose ) {
     output("; starting");
 }
+
+$METHOD_SETUPS{$method}->( $scheduler, $domain );
 
 $scheduler->run;
 
