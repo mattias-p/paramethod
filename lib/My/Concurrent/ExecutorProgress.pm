@@ -59,7 +59,7 @@ sub submit {
 sub await {
     my ( $self ) = @_;
 
-    printf STDERR "%d/%d\r", $self->{_completed}, $self->{_total};
+    printf STDERR "  %d/%d\r", $self->{_completed}, $self->{_total};
 
     $self->{_completed}++;
 

@@ -22,9 +22,17 @@ use parent 'My::Concurrent::Executor';
 =cut
 
 sub new {
-    my ( $class, $executor ) = @_;
+    my ( $class, $executor, $stats_ref ) = @_;
 
-    my $obj = { _inner => $executor, };
+    $$stats_ref = {
+        requests  => 0,
+        responses => 0,
+    };
+
+    my $obj = {
+        _inner => $executor,
+        _stats => $$stats_ref,
+    };
 
     return bless $obj, $class;
 }
@@ -43,6 +51,7 @@ sub submit {
     }
 
     $self->{_inner}->submit( $id, $command );
+    $self->{_stats}{requests}++;
 
     return;
 }
@@ -56,7 +65,10 @@ sub await {
 
     my ( $op, $id, $command, $response ) = $self->{_inner}->await;
 
-    if ( !defined $response ) {
+    if ( defined $response ) {
+        $self->{_stats}{responses}++;
+    }
+    else {
         printf STDERR "no response from %s on %s query\n", $command->server_ip, $command->qtype;
     }
 

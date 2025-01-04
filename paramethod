@@ -2,12 +2,6 @@
 use 5.016;
 use warnings;
 
-my $begin_time;
-
-BEGIN {
-    $begin_time = time();
-}
-
 use Getopt::Long qw( :config gnu_getopt );
 use My::Concurrent::ExecutorCache;
 use My::Concurrent::ExecutorProgress;
@@ -39,6 +33,7 @@ my $opt_strategy     = 'bg';
 my $opt_timeout      = 5;
 my $opt_list_methods = 0;
 
+my $begin_time;
 sub output {
 
     my ( $format, @args ) = @_;
@@ -159,9 +154,10 @@ else {
     $executor = My::DNS::FgExecutor->new( timeout => $opt_timeout );
 }
 
+my $stats;
 if ( $opt_verbose ) {
     $executor = My::Concurrent::ExecutorProgress->new( $executor );
-    $executor = My::DNS::ExecutorDiagnostics->new( $executor );
+    $executor = My::DNS::ExecutorDiagnostics->new( $executor, \$stats );
 }
 
 $executor = My::Concurrent::ExecutorCache->new( $executor );
@@ -172,6 +168,7 @@ if ( !$opt_ipv4 || !$opt_ipv6 ) {
 
 my $scheduler = My::Concurrent::Scheduler->new( $executor );
 
+$begin_time = time();
 if ( $opt_verbose ) {
     output("; starting");
 }
@@ -181,7 +178,7 @@ $METHOD_SETUPS{$method}->( $scheduler, $domain );
 $scheduler->run;
 
 if ( $opt_verbose ) {
-    output("; done");
+    output("; done ($stats->{responses}/$stats->{requests} responses)");
 }
 
 exit 0;
