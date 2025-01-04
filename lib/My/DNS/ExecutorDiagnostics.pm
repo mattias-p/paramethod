@@ -24,6 +24,8 @@ use parent 'My::Concurrent::Executor';
 sub new {
     my ( $class, $executor, $stats_ref ) = @_;
 
+    $stats_ref //= \my $dummy;
+
     $$stats_ref = {
         requests  => 0,
         responses => 0,

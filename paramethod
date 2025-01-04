@@ -154,10 +154,10 @@ else {
     $executor = My::DNS::FgExecutor->new( timeout => $opt_timeout );
 }
 
-my $stats;
+my $diag_stats;
 if ( $opt_verbose ) {
     $executor = My::Concurrent::ExecutorProgress->new( $executor );
-    $executor = My::DNS::ExecutorDiagnostics->new( $executor, \$stats );
+    $executor = My::DNS::ExecutorDiagnostics->new( $executor, \$diag_stats );
 }
 
 $executor = My::Concurrent::ExecutorCache->new( $executor );
@@ -166,7 +166,7 @@ if ( !$opt_ipv4 || !$opt_ipv6 ) {
     $executor = My::DNS::ExecutorFilter->new( $executor, ipv4 => $opt_ipv4, ipv6 => $opt_ipv6 );
 }
 
-my $scheduler = My::Concurrent::Scheduler->new( $executor );
+my $scheduler = My::Concurrent::Scheduler->new( $executor, \my $sched_stats );
 
 $begin_time = time();
 if ( $opt_verbose ) {
@@ -178,7 +178,7 @@ $METHOD_SETUPS{$method}->( $scheduler, $domain );
 $scheduler->run;
 
 if ( $opt_verbose ) {
-    output("; done ($stats->{responses}/$stats->{requests} responses)");
+    output("; done ($diag_stats->{requests} requests, $sched_stats->{tasks} tasks)");
 }
 
 exit 0;

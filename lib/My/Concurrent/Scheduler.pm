@@ -26,7 +26,10 @@ Exclusive control over EXECUTOR is assumed.
 =cut
 
 sub new {
-    my ( $class, $executor ) = @_;
+    my ( $class, $executor, $stats_ref ) = @_;
+
+    $stats_ref //= \my $dummy;
+    $$stats_ref = { tasks => 0 };
 
     if ( !blessed $executor || !$executor->isa( 'My::Concurrent::Executor' ) ) {
         croak "executor argument must be a My::Concurrent::Executor";
@@ -34,6 +37,7 @@ sub new {
 
     my $scheduler = {
         _executor     => $executor,
+        _stats        => $$stats_ref,
         _num_tasks    => 0,
         _cur_task     => 0,
         _cur_consumer => 0,
@@ -192,6 +196,7 @@ sub _task {
     my ( $self, $dependencies, $handler, %properties ) = @_;
 
     my $taskid = ++$self->{_num_tasks};
+    $self->{_stats}{tasks} = $self->{_num_tasks};
 
     my %dependencies = map { $_ => undef } @{$dependencies};
     my $parent       = $self->{_cur_task};
