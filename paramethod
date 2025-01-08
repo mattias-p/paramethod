@@ -3,23 +3,23 @@ use 5.016;
 use warnings;
 
 use Getopt::Long qw( :config gnu_getopt );
-use My::Concurrent::ExecutorCache;
-use My::Concurrent::ExecutorProgress;
-use My::Concurrent::Scheduler;
-use My::DNS::BgExecutor;
-use My::DNS::ExecutorDiagnostics;
-use My::DNS::ExecutorFilter;
-use My::DNS::FgExecutor;
-use My::DNS::MethodsV2 qw(
-    get_parent_ns_ips
-    get_delegation
-    get_del_ns_names_and_ips
-    get_del_ns_names
-    get_del_ns_ips
-    get_zone_ns_names
-    get_ib_addr_in_zone
-    get_zone_ns_names_and_ips
-    get_zone_ns_ips
+use My::Tasks::ExecutorCache;
+use My::Tasks::ExecutorProgress;
+use My::Tasks::Scheduler;
+use My::DnsRequests::BgExecutor;
+use My::DnsRequests::ExecutorDiagnostics;
+use My::DnsRequests::ExecutorFilter;
+use My::DnsRequests::FgExecutor;
+use My::TestMethods::MethodsV2 qw(
+  get_parent_ns_ips
+  get_delegation
+  get_del_ns_names_and_ips
+  get_del_ns_names
+  get_del_ns_ips
+  get_zone_ns_names
+  get_ib_addr_in_zone
+  get_zone_ns_names_and_ips
+  get_zone_ns_ips
 );
 use Pod::Usage;
 use Readonly;
@@ -34,6 +34,7 @@ my $opt_timeout      = 5;
 my $opt_list_methods = 0;
 
 my $begin_time;
+
 sub output {
 
     my ( $format, @args ) = @_;
@@ -148,29 +149,29 @@ if ( @ARGV ) {
 
 my $executor;
 if ( $opt_strategy eq 'bg' ) {
-    $executor = My::DNS::BgExecutor->new( timeout => $opt_timeout );
+    $executor = My::DnsRequests::BgExecutor->new( timeout => $opt_timeout );
 }
 else {
-    $executor = My::DNS::FgExecutor->new( timeout => $opt_timeout );
+    $executor = My::DnsRequests::FgExecutor->new( timeout => $opt_timeout );
 }
 
 my $diag_stats;
 if ( $opt_verbose ) {
-    $executor = My::Concurrent::ExecutorProgress->new( $executor );
-    $executor = My::DNS::ExecutorDiagnostics->new( $executor, \$diag_stats );
+    $executor = My::Tasks::ExecutorProgress->new( $executor );
+    $executor = My::DnsRequests::ExecutorDiagnostics->new( $executor, \$diag_stats );
 }
 
-$executor = My::Concurrent::ExecutorCache->new( $executor );
+$executor = My::Tasks::ExecutorCache->new( $executor );
 
 if ( !$opt_ipv4 || !$opt_ipv6 ) {
-    $executor = My::DNS::ExecutorFilter->new( $executor, ipv4 => $opt_ipv4, ipv6 => $opt_ipv6 );
+    $executor = My::DnsRequests::ExecutorFilter->new( $executor, ipv4 => $opt_ipv4, ipv6 => $opt_ipv6 );
 }
 
-my $scheduler = My::Concurrent::Scheduler->new( $executor, \my $sched_stats );
+my $scheduler = My::Tasks::Scheduler->new( $executor, \my $sched_stats );
 
 $begin_time = time();
 if ( $opt_verbose ) {
-    output("; starting");
+    output( "; starting" );
 }
 
 $METHOD_SETUPS{$method}->( $scheduler, $domain );
@@ -178,7 +179,7 @@ $METHOD_SETUPS{$method}->( $scheduler, $domain );
 $scheduler->run;
 
 if ( $opt_verbose ) {
-    output("; done ($diag_stats->{requests} requests, $sched_stats->{tasks} tasks)");
+    output( "; done ($diag_stats->{requests} requests, $sched_stats->{tasks} tasks)" );
 }
 
 exit 0;

@@ -1,11 +1,11 @@
 
 =head1 NAME
 
-My::Concurrent::Scheduler - Implements cooperative multi-tasking.
+My::Tasks::Scheduler - Implements cooperative multi-tasking.
 
 =cut
 
-package My::Concurrent::Scheduler;
+package My::Tasks::Scheduler;
 use 5.016;
 use warnings;
 
@@ -18,9 +18,9 @@ use Scalar::Util qw( blessed looks_like_number );
 
 Construct an instance that delegates commands to EXECUTOR.
 
-    my $scheduler = My::Concurrent::Scheduler->new( $executor );
+    my $scheduler = My::Tasks::Scheduler->new( $executor );
 
-The EXECUTOR must implement My::Concurrent::Executor.
+The EXECUTOR must implement My::Tasks::Executor.
 Exclusive control over EXECUTOR is assumed.
 
 =cut
@@ -31,8 +31,8 @@ sub new {
     $stats_ref //= \my $dummy;
     $$stats_ref = { tasks => 0 };
 
-    if ( !blessed $executor || !$executor->isa( 'My::Concurrent::Executor' ) ) {
-        croak "executor argument must be a My::Concurrent::Executor";
+    if ( !blessed $executor || !$executor->isa( 'My::Tasks::Executor' ) ) {
+        croak "executor argument must be a My::Tasks::Executor";
     }
 
     my $scheduler = {
@@ -92,9 +92,9 @@ Schedule a consumer task with an attached producer.
         ...
     });
 
-The PRODUCER may be a coderef. The coderef is called with the My::Concurrent::Scheduler instance as
+The PRODUCER may be a coderef. The coderef is called with the My::Tasks::Scheduler instance as
 its only argument.
-The PRODUCER may be a My::Concurrent::Command instance. The instance is submitted to the executor.
+The PRODUCER may be a My::Tasks::Command instance. The instance is submitted to the executor.
 For each result produced by the PRODUCER, the CONSUMER is called with the result as its
 arguments.
 
@@ -109,7 +109,7 @@ sub consume {
         croak "CONSUMER argument must be a coderef";
     }
 
-    if ( blessed $producer && $producer->isa( 'My::Concurrent::Command' ) ) {
+    if ( blessed $producer && $producer->isa( 'My::Tasks::Command' ) ) {
         return $self->_task( [], $consumer, command => $producer );
     }
 
@@ -122,7 +122,7 @@ sub consume {
         );
     }
 
-    croak "PRODUCER argument must be either a My::Concurrent::Command or a coderef";
+    croak "PRODUCER argument must be either a My::Tasks::Command or a coderef";
 }
 
 =head2 defer DEPENDENCIES, ACTION

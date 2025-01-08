@@ -1,10 +1,10 @@
 =head1 NAME
 
-My::DNS::ExecutorFilter - Wraps an executor and filters commands.
+My::DnsRequests::ExecutorFilter - Wraps an executor and filters commands.
 
 =cut 
 
-package My::DNS::ExecutorFilter;
+package My::DnsRequests::ExecutorFilter;
 use 5.016;
 use warnings;
 
@@ -12,13 +12,13 @@ use Carp qw( croak );
 use Data::Validate::IP qw( is_ipv4 is_ipv6 );
 use Scalar::Util qw( blessed );
 
-use parent 'My::Concurrent::Executor';
+use parent 'My::Tasks::Executor';
 
 =head1 CONSTRUCTORS
 
 =head2 new()
 
-    my $executor = My::DNS::ExecutorFilter->new( $inner_executor );
+    my $executor = My::DnsRequests::ExecutorFilter->new( $inner_executor );
 
 =cut
 
@@ -50,11 +50,11 @@ sub new {
 sub submit {
     my ( $self, $id, $command ) = @_;
 
-    if ( !blessed $command || !$command->isa( 'My::Concurrent::Command' ) ) {
-        croak "command argument to submit() must be a My::Concurrent::Command";
+    if ( !blessed $command || !$command->isa( 'My::Tasks::Command' ) ) {
+        croak "command argument to submit() must be a My::Tasks::Command";
     }
 
-    if ( ref $command eq 'My::DNS::Query' && !$self->check_ip( $command->server_ip ) ) {
+    if ( ref $command eq 'My::DnsRequests::Command' && !$self->check_ip( $command->server_ip ) ) {
         push @{ $self->{_ready} }, [ 'close', $id, $command ];
     }
     else {

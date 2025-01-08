@@ -1,23 +1,23 @@
 =head1 NAME
 
-My::Concurrent::ExecutorProgress - Wraps an executor and prints progress to STDERR.
+My::Tasks::ExecutorProgress - Wraps an executor and prints progress to STDERR.
 
 =cut 
 
-package My::Concurrent::ExecutorProgress;
+package My::Tasks::ExecutorProgress;
 use 5.016;
 use warnings;
 
 use Carp qw( croak );
 use Scalar::Util qw( blessed );
 
-use parent 'My::Concurrent::Executor';
+use parent 'My::Tasks::Executor';
 
 =head1 CONSTRUCTORS
 
 =head2 new()
 
-    my $executor = My::Concurrent::ExecutorProgress->new( $inner_executor );
+    my $executor = My::Tasks::ExecutorProgress->new( $inner_executor );
 
 =cut
 
@@ -42,8 +42,8 @@ sub new {
 sub submit {
     my ( $self, $id, $command ) = @_;
 
-    if ( !blessed $command || !$command->isa( 'My::Concurrent::Command' ) ) {
-        croak "command argument to submit() must be a My::Concurrent::Command";
+    if ( !blessed $command || !$command->isa( 'My::Tasks::Command' ) ) {
+        croak "command argument to submit() must be a My::Tasks::Command";
     }
 
     $self->{_total}++;

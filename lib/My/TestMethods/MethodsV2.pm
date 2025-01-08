@@ -1,11 +1,11 @@
-package My::DNS::MethodsV2;
+package My::TestMethods::MethodsV2;
 use 5.016;
 use warnings;
 
 use Carp qw( croak );
 use Data::Validate::IP qw( is_ip );
 use Exporter 'import';
-use My::DNS::Query qw( query );
+use My::DnsRequests qw( dns_request );
 
 our @EXPORT_OK = qw(
     eq_domain
@@ -107,8 +107,8 @@ sub lookup {
             }
         };
 
-        $scheduler->consume( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'A',    rd => 1 ), sub { $handle->( 'A',    shift ) } );
-        $scheduler->consume( query( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA', rd => 1 ), sub { $handle->( 'AAAA', shift ) } );
+        $scheduler->consume( dns_request( server_ip => '9.9.9.9', qname => $qname, qtype => 'A',    rd => 1 ), sub { $handle->( 'A',    shift ) } );
+        $scheduler->consume( dns_request( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA', rd => 1 ), sub { $handle->( 'AAAA', shift ) } );
 
         return;
     };
@@ -171,8 +171,8 @@ sub get_parent_ns_ips {
             $handled_servers{$server_address}{$zone_name} = 1;
 
             # Step 5.3
-            my $zone_name_soa_query = query( server_ip => $server_address, qname => $zone_name, qtype => 'SOA' );
-            my $zone_name_ns_query  = query( server_ip => $server_address, qname => $zone_name, qtype => 'NS' );
+            my $zone_name_soa_query = dns_request( server_ip => $server_address, qname => $zone_name, qtype => 'SOA' );
+            my $zone_name_ns_query  = dns_request( server_ip => $server_address, qname => $zone_name, qtype => 'NS' );
 
             # Step 5.4
             $scheduler->consume(
@@ -282,7 +282,7 @@ sub get_parent_ns_ips {
             }
 
             # Step 5.11.2
-            my $intermediate_soa_query = query( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'SOA' );
+            my $intermediate_soa_query = dns_request( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'SOA' );
 
             # Step 5.11.3
             $scheduler->consume(
@@ -309,7 +309,7 @@ sub get_parent_ns_ips {
                         }
 
                         # Step 5.11.5.2.1
-                        my $intermediate_ns_query = query( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'NS' );
+                        my $intermediate_ns_query = dns_request( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'NS' );
 
                         # Step 5.11.5.2.2
                         $scheduler->consume(
@@ -408,7 +408,7 @@ sub get_delegation {
                 my ( $parent_ns ) = @_;
 
                 # Step 5
-                my $ns_query = query( server_ip => $parent_ns, qname => $child_zone, qtype => 'NS' );
+                my $ns_query = dns_request( server_ip => $parent_ns, qname => $child_zone, qtype => 'NS' );
 
                 # Step 7.1
                 $scheduler->consume(
@@ -626,7 +626,7 @@ sub get_zone_ns_names {
                 my ( $addr ) = @_;
 
                 $scheduler->consume(
-                    query( server_ip => $addr, qname => $child_zone, qtype => 'NS' ),
+                    dns_request( server_ip => $addr, qname => $child_zone, qtype => 'NS' ),
                     sub {
                         my ( $ns_response ) = @_;
 

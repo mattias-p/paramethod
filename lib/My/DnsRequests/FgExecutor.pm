@@ -1,14 +1,14 @@
 =head1 NAME
 
-My::DNS::FgExecutor - Executes commands sequentially.
+My::DnsRequests::FgExecutor - Executes commands sequentially.
 
 =cut
 
-package My::DNS::FgExecutor;
+package My::DnsRequests::FgExecutor;
 use 5.016;
 use warnings;
 
-use parent 'My::Concurrent::Executor';
+use parent 'My::Tasks::Executor';
 
 use Carp qw( croak );
 use Net::DNS;
@@ -16,7 +16,7 @@ use Scalar::Util qw( looks_like_number );
 
 =head1 DESCRIPTION
 
-A simple implementation of My::Concurrent::Executor that executes commands sequentially in
+A simple implementation of My::Tasks::Executor that executes commands sequentially in
 the foreground.
 
 =head1 CONSTRUCTORS
@@ -25,7 +25,7 @@ the foreground.
 
 Construct a new instance.
 
-    my $executor = My::DNS::FgExecutor->new;
+    my $executor = My::DnsRequests::FgExecutor->new;
 
 =cut
 
@@ -55,8 +55,8 @@ Enqueue a command.
 sub submit {
     my ( $self, $id, $command ) = @_;
 
-    if ( !blessed $command || !$command->isa( 'My::DNS::Query' ) ) {
-        croak "command muts be a My::DNS::Query";
+    if ( !blessed $command || !$command->isa( 'My::DnsRequests::Command' ) ) {
+        croak "command muts be a My::DnsRequests::Command";
     }
 
     push @{ $self->{_tasks} }, [ $id, $command ];

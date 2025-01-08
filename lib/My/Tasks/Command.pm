@@ -1,10 +1,10 @@
 =head1 NAME
 
-My::Concurrent::Command - Base class for commands.
+My::Tasks::Command - Base class for commands.
 
 =cut
 
-package My::Concurrent::Command;
+package My::Tasks::Command;
 use 5.016;
 use warnings;
 

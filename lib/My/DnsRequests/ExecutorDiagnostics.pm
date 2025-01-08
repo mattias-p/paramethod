@@ -1,23 +1,23 @@
 =head1 NAME
 
-My::DNS::ExecutorDiagnostics - Wraps an executor and prints diagnostics to STDERR.
+My::DnsRequests::ExecutorDiagnostics - Wraps an executor and prints diagnostics to STDERR.
 
 =cut 
 
-package My::DNS::ExecutorDiagnostics;
+package My::DnsRequests::ExecutorDiagnostics;
 use 5.016;
 use warnings;
 
 use Carp qw( croak );
 use Scalar::Util qw( blessed );
 
-use parent 'My::Concurrent::Executor';
+use parent 'My::Tasks::Executor';
 
 =head1 CONSTRUCTORS
 
 =head2 new()
 
-    my $executor = My::DNS::ExecutorDiagnostics->new( $inner_executor );
+    my $executor = My::DnsRequests::ExecutorDiagnostics->new( $inner_executor );
 
 =cut
 
@@ -48,8 +48,8 @@ sub new {
 sub submit {
     my ( $self, $id, $command ) = @_;
 
-    if ( !blessed $command || !$command->isa( 'My::DNS::Query' ) ) {
-        croak "command argument must be a My::DNS::Query";
+    if ( !blessed $command || !$command->isa( 'My::DnsRequests::Command' ) ) {
+        croak "command argument must be a My::DnsRequests::Command";
     }
 
     $self->{_inner}->submit( $id, $command );

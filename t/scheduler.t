@@ -3,22 +3,23 @@ use 5.016;
 use warnings;
 use Test::More;
 
-use My::Concurrent::Scheduler qw( block_on );
-use My::DNS::SequentialExecutor;
+use My::Tasks::Scheduler qw( block_on );
+use My::DnsRequests::FgExecutor;
 use Test::Differences qw( eq_or_diff );
 use Test::Exception;
 
-my $executor = My::DNS::SequentialExecutor->new;
+my $executor = My::DnsRequests::FgExecutor->new;
 
 lives_and {
-    my @results = My::Concurrent::Scheduler->new( $executor )->run;
+    my @results = My::Tasks::Scheduler->new( $executor )->run;
 
     eq_or_diff \@results, [];
-} 'noop';
+}
+'noop';
 
 subtest 'top level production' => sub {
     lives_and {
-        my $scheduler = My::Concurrent::Scheduler->new( $executor );
+        my $scheduler = My::Tasks::Scheduler->new( $executor );
         $scheduler->produce( 123 );
         $scheduler->produce( 456 );
 
@@ -36,7 +37,7 @@ subtest 'task' => sub {
         };
 
         my @consumed;
-        my $scheduler = My::Concurrent::Scheduler->new( $executor );
+        my $scheduler = My::Tasks::Scheduler->new( $executor );
         $scheduler->consume(
             $producer,
             sub {
@@ -55,7 +56,7 @@ subtest 'task' => sub {
 
 subtest 'defer' => sub {
     lives_and {
-        my $scheduler = My::Concurrent::Scheduler->new( $executor );
+        my $scheduler = My::Tasks::Scheduler->new( $executor );
         $scheduler->defer(
             [],
             sub {
@@ -79,8 +80,8 @@ subtest 'defer' => sub {
 
 subtest 'dependency' => sub {
     lives_and {
-        my $scheduler = My::Concurrent::Scheduler->new( $executor );
-        my $taskid = $scheduler->defer(
+        my $scheduler = My::Tasks::Scheduler->new( $executor );
+        my $taskid    = $scheduler->defer(
             [],
             sub {
                 $scheduler->produce( 123 );

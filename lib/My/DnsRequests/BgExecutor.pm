@@ -1,8 +1,8 @@
-package My::DNS::BgExecutor;
+package My::DnsRequests::BgExecutor;
 use 5.016;
 use warnings;
 
-use parent 'My::Concurrent::Executor';
+use parent 'My::Tasks::Executor';
 use Carp qw(croak);
 use Net::DNS;
 use Scalar::Util qw( looks_like_number );
@@ -34,7 +34,7 @@ sub _mk_packet {
 sub submit {
     my ( $self, $id, $command ) = @_;
 
-    croak "$command is not a My::DNS::Query object" unless $command->isa( 'My::DNS::Query' );
+    croak "$command is not a My::DnsRequests::Command object" unless $command->isa( 'My::DnsRequests::Command' );
 
     my $server_ip = $command->{server_ip};
 
@@ -92,21 +92,21 @@ __END__
 
 =head1 NAME
 
-My::DNS::BgExecutor - Execute My::DNS::Query commands concurrently in the background.
+My::DnsRequests::BgExecutor - Execute My::DnsRequests::Command commands concurrently in the background.
 
 =head1 DESCRIPTION
 
-This implementation of L<My::Concurrent::Executor> uses the bgsend/bgbusy/bgread API in Net::DNS to perform DNS queries specified by L<My::DNS::Query> commands.
+This implementation of L<My::Tasks::Executor> uses the bgsend/bgbusy/bgread API in Net::DNS to perform DNS queries specified by L<My::DnsRequests::Command> commands.
 
 =head1 METHODS
 
 =head2 new()
 
-Creates a new instance of My::DNS::BgExecutor.
+Creates a new instance of My::DnsRequests::BgExecutor.
 
 =head2 submit($id, $command)
 
-Submits a L<My::DNS::Query> for execution. The DNS request is sent to the address specified in the command's server_ip attribute.
+Submits a L<My::DnsRequests::Command> for execution. The DNS request is sent to the address specified in the command's server_ip attribute.
 
 =head2 await()
 

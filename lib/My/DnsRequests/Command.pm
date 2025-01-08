@@ -1,12 +1,12 @@
 =head1 NAME
 
-My::DNS::Query - Represents a DNS query command.
+My::DnsRequests::Command - Represents a DNS query command.
 
 =head1 DESCRIPTION
 
 =cut
 
-package My::DNS::Query;
+package My::DnsRequests::Command;
 use 5.016;
 use warnings;
 
@@ -15,26 +15,11 @@ use Class::Accessor;
 use Scalar::Util qw( blessed );
 use Data::Validate::IP qw( is_ip );
 
-use Exporter 'import';
 use base 'Class::Accessor';
-use parent 'My::Concurrent::Command';
+use parent 'My::Tasks::Command';
 
-our @EXPORT_OK = qw( query );
-
-=head1 CONSTRUCTORS
-
-Constructs a new instance.
-
-    use My::DNS::Query qw( query );
-
-    my $query = query( server_ip => '9.9.9.9', qname => 'iis.se', qtype => 'A' );
-
-    my $query = query( server_ip => '9.9.9.9', qname => 'iis.se', qtype => 'A', rd => 1 );
-
-=cut
-
-sub query {
-    my ( %args ) = @_;
+sub new {
+    my ( $class, %args ) = @_;
 
     if ( !defined $args{server_ip} || !is_ip( $args{server_ip} ) ) {
         croak "argument must be an IP address: server_ip";
@@ -67,7 +52,7 @@ sub query {
         croak "unrecognized arguments: " . join ' ', sort keys %args;
     }
 
-    return bless $obj, 'My::DNS::Query';
+    return bless $obj, $class;
 }
 
 =head1 ATTRIBUTES
@@ -92,7 +77,7 @@ The qtype to use in the query.
 
 =cut
 
-My::DNS::Query->mk_accessors( qw( server_ip qname qtype rd ) );
+My::DnsRequests::Command->mk_accessors( qw( server_ip qname qtype rd ) );
 
 =head1 METHODS
 

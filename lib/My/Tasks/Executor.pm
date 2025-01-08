@@ -1,16 +1,16 @@
 =head1 NAME
 
-My::Concurrent::Executor - An interface that abstracts command execution.
+My::Tasks::Executor - An interface that abstracts command execution.
 
 =cut
 
-package My::Concurrent::Executor;
+package My::Tasks::Executor;
 use 5.016;
 use warnings;
 
 =head1 DESCRIPTION
 
-The My::Concurrent::Executor interface allows callers to execute commands, and it allows
+The My::Tasks::Executor interface allows callers to execute commands, and it allows
 implementations to use different execution strategies.
 
 The interface itself is not thread-safe, though it may abstract multi-threaded
@@ -23,7 +23,7 @@ Implementations are expected to provide constructors adapted to their own needs.
 
 =head2 submit()
 
-Request the execution of a L<My::Concurrent::Command>.
+Request the execution of a L<My::Tasks::Command>.
 
     $executor->submit( $id, $command );
 
@@ -59,7 +59,7 @@ sub await {
 
 =over 4
 
-=item L<My::Concurrent::Command>
+=item L<My::Tasks::Command>
 
 =back
 
