@@ -1,3 +1,4 @@
+
 =head1 NAME
 
 My::DnsRequests::FgExecutor - Executes commands sequentially.
@@ -86,6 +87,8 @@ sub await {
     }
 
     my $result = $client->send( $command->new_packet );
+
+    $result //= $My::DnsRequest::NO_RESPONSE;
 
     return 'return', $id, $command, $result;
 }

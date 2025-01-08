@@ -2,24 +2,24 @@ package My::TestMethods::MethodsV2;
 use 5.016;
 use warnings;
 
-use Carp qw( croak );
+use Carp               qw( croak );
 use Data::Validate::IP qw( is_ip );
 use Exporter 'import';
 use My::DnsRequests qw( dns_request );
 
 our @EXPORT_OK = qw(
-    eq_domain
-    ne_domain
-    lookup
-    get_parent_ns_ips
-    get_delegation
-    get_del_ns_names_and_ips
-    get_del_ns_names
-    get_del_ns_ips
-    get_zone_ns_names
-    get_ib_addr_in_zone
-    get_zone_ns_names_and_ips
-    get_zone_ns_ips
+  eq_domain
+  ne_domain
+  lookup
+  get_parent_ns_ips
+  get_delegation
+  get_del_ns_names_and_ips
+  get_del_ns_names
+  get_del_ns_ips
+  get_zone_ns_names
+  get_ib_addr_in_zone
+  get_zone_ns_names_and_ips
+  get_zone_ns_ips
 );
 
 sub eq_domain {
@@ -54,17 +54,17 @@ sub is_referral_to {
 }
 
 sub is_in_bailiwick {
-    my ($domain, $bailiwick) = @_;
+    my ( $domain, $bailiwick ) = @_;
 
-    $domain = lc $domain;
+    $domain    = lc $domain;
     $bailiwick = lc $bailiwick;
 
     # Remove trailing dots for uniformity
-    $domain =~ s/\.$//;
+    $domain    =~ s/\.$//;
     $bailiwick =~ s/\.$//;
 
     # Check if the domain ends with the bailiwick
-    return ($domain eq $bailiwick || $domain =~ /\.\Q$bailiwick\E$/) ? 1 : 0;
+    return ( $domain eq $bailiwick || $domain =~ /\.\Q$bailiwick\E$/ ) ? 1 : 0;
 }
 
 sub get_addresses {
@@ -94,12 +94,12 @@ sub lookup {
         my ( $scheduler ) = @_;
 
         my $handle = sub {
-            my ( $qtype, $packet ) = @_;
+            my ( $qtype, $result ) = @_;
 
             $qname = lc $qname =~ s/([^.])$/$1./r;
 
-            if ( defined $packet ) {
-                for my $rr ( $packet->answer ) {
+            if ( $result ne $My::DnsRequests::NO_RESPONSE ) {
+                for my $rr ( $result->answer ) {
                     if ( eq_domain( $rr->owner, $qname ) && uc $rr->type eq $qtype ) {
                         $scheduler->produce( $rr->address );
                     }
@@ -145,14 +145,14 @@ sub get_parent_ns_ips {
         }
 
         # Step 3
-        my %handled_servers; # "Handled Servers"
-        # Instead of adding pairs to "Remaining Servers", they are submitted to the scheduler to be handled by $handle_server.
-        # Instead of adding addresses to "Parent NS IP", they are produced from this task.
+        my %handled_servers;    # "Handled Servers"
+                                # Instead of adding pairs to "Remaining Servers", they are submitted to the scheduler to be handled by $handle_server.
+                                # Instead of adding addresses to "Parent NS IP", they are produced from this task.
 
         # Step 4
         $process_root_servers = sub {
             for my $nsdname ( sort keys %$root_name_servers ) {
-                for my $addr ( sort @{ $root_name_servers->{ $nsdname } } ) {
+                for my $addr ( sort @{ $root_name_servers->{$nsdname} } ) {
                     $handle_server->( $addr, '.' );
                 }
             }
@@ -244,6 +244,7 @@ sub get_parent_ns_ips {
 
             for my $rr ( @$ns_rrs ) {
                 if ( !exists $glue{ $rr->nsdname } ) {
+
                     # Step 5.9
                     # Step 5.11.5.2.5
                     # Step 5.11.6.2.2
@@ -278,7 +279,7 @@ sub get_parent_ns_ips {
             {
                 my $count = 1 + scalar split /[.]/, $intermediate_query_name;
                 my @child_zone_labels = split /[.]/, $child_zone;
-                $intermediate_query_name = join('.', @child_zone_labels[-$count..-1], '');
+                $intermediate_query_name = join( '.', @child_zone_labels[ -$count .. -1 ], '' );
             }
 
             # Step 5.11.2
@@ -298,6 +299,7 @@ sub get_parent_ns_ips {
                     # Step 5.11.5
                     my @soa_rrs = grep { $_->type eq 'SOA' && eq_domain( $_->owner, $intermediate_query_name ) } $soa_response->answer;
                     if ( @soa_rrs == 1 && $soa_response->header->aa && $soa_response->header->rcode eq 'NOERROR' ) {
+
                         # Step 5.11.5.1
                         if ( $intermediate_query_name eq $child_zone ) {
 
@@ -325,6 +327,7 @@ sub get_parent_ns_ips {
 
                     # Step 5.11.6
                     elsif ( $soa_response->header->rcode eq 'NOERROR' && !$soa_response->header->aa && grep { $_->type eq 'NS' } $soa_response->authority ) {
+
                         # Step 5.11.6.1
                         if ( $intermediate_query_name eq $child_zone ) {
 
@@ -423,6 +426,7 @@ sub get_delegation {
 
                         # Step 7.3
                         if ( is_referral_to( $ns_response, $child_zone ) ) {
+
                             # Step 7.3.1
                             my @ns_rrs = grep { $_->type eq 'NS' } $ns_response->authority;
 
@@ -660,15 +664,18 @@ sub get_ib_addr_in_zone {
 
             state %seen;
 
-            $scheduler->consume( lookup( $child_zone, [$server_ip], $nsdname ), sub {
-                my ( $addr ) = @_;
+            $scheduler->consume(
+                lookup( $child_zone, [$server_ip], $nsdname ),
+                sub {
+                    my ( $addr ) = @_;
 
-                if ( !exists $seen{$addr} ) {
-                    $seen{$addr} = 1;
+                    if ( !exists $seen{$addr} ) {
+                        $seen{$addr} = 1;
 
-                    $scheduler->produce( $nsdname, $addr );
+                        $scheduler->produce( $nsdname, $addr );
+                    }
                 }
-            });
+            );
         };
 
         # Call $query_addresses for the cross product of Get-Del-NS-IPs and the in-bailiwick names from Get-Zone-NS-Names

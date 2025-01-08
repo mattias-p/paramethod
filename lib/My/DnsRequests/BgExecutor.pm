@@ -5,6 +5,7 @@ use warnings;
 use parent 'My::Tasks::Executor';
 use Carp qw(croak);
 use Net::DNS;
+use My::DnsRequests;
 use Scalar::Util qw( looks_like_number );
 
 sub new {
@@ -46,12 +47,10 @@ sub submit {
             $client->udp_timeout( $self->{_timeout} );
         }
 
-        $client
+        $client;
     };
 
-    my $client = $self->{_clients}{$server_ip};
-
-    my $handle = $client->bgsend( $command->new_packet );
+    my $handle = $self->{_clients}{$server_ip}->bgsend( $command->new_packet );
 
     push @{ $self->{_pending} }, [ $server_ip, $handle, $id, $command ];
 
@@ -70,16 +69,18 @@ sub await {
             $self->{_index} = 0;
         }
 
-        my ( $server_ip, $handle, $id, $command ) = @{ $self->{_pending}[$self->{_index}] };
+        my ( $server_ip, $handle, $id, $command ) = @{ $self->{_pending}[ $self->{_index} ] };
 
         my $client = $self->{_clients}{$server_ip};
 
         if ( !$client->bgbusy( $handle ) ) {
-            my $packet = $client->bgread( $handle );
+            my $result = $client->bgread( $handle );
+
+            $result //= $My::DnsRequest::NO_RESPONSE;
 
             splice @{ $self->{_pending} }, $self->{_index}, 1;
 
-            return 'return', $id, $command, $packet;
+            return 'return', $id, $command, $result;
         }
 
         $self->{_index}++;
