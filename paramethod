@@ -73,7 +73,7 @@ Readonly my %ROOT_NAME_SERVERS => (
 );
 
 Readonly my %METHOD_SETUPS => (
-    'get-parent-ns-ip' => sub {
+    'get-parent-ns-ips' => sub {
         my ( $scheduler, $domain ) = @_;
         $scheduler->consume( get_parent_ns_ips( $domain, \%ROOT_NAME_SERVERS ), \&output_fields );
     },
