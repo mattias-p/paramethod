@@ -11,7 +11,8 @@ use warnings;
 
 use parent 'My::Tasks::Executor';
 
-use Carp qw( croak );
+use Carp                       qw( croak );
+use My::DnsRequests::Constants qw( $NO_RESPONSE );
 use Net::DNS;
 use Scalar::Util qw( looks_like_number );
 
@@ -87,10 +88,9 @@ sub await {
     }
 
     my $result = $client->send( $command->new_packet );
+    $result //= $NO_RESPONSE;
 
-    $result //= $My::DnsRequest::NO_RESPONSE;
-
-    return 'return', $id, $command, $result;
+    return $id, $command, [$result];
 }
 
 1;

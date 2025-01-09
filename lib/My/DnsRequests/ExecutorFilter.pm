@@ -1,3 +1,4 @@
+
 =head1 NAME
 
 My::DnsRequests::ExecutorFilter - Wraps an executor and filters commands.
@@ -8,9 +9,9 @@ package My::DnsRequests::ExecutorFilter;
 use 5.016;
 use warnings;
 
-use Carp qw( croak );
+use Carp               qw( croak );
 use Data::Validate::IP qw( is_ipv4 is_ipv6 );
-use Scalar::Util qw( blessed );
+use Scalar::Util       qw( blessed );
 
 use parent 'My::Tasks::Executor';
 
@@ -26,8 +27,8 @@ sub new {
     my ( $class, $executor, %config ) = @_;
 
     my $obj = {
-        _inner => $executor,
-        _ready => [],
+        _inner  => $executor,
+        _ready  => [],
         _config => {
             ipv4 => delete $config{ipv4} // 1,
             ipv6 => delete $config{ipv6} // 1,
@@ -55,7 +56,7 @@ sub submit {
     }
 
     if ( ref $command eq 'My::DnsRequests::Command' && !$self->check_ip( $command->server_ip ) ) {
-        push @{ $self->{_ready} }, [ 'close', $id, $command ];
+        push @{ $self->{_ready} }, [ $id, $command, undef ];
     }
     else {
         $self->{_inner}->submit( $id, $command );

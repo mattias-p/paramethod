@@ -5,7 +5,8 @@ use warnings;
 use Carp               qw( croak );
 use Data::Validate::IP qw( is_ip );
 use Exporter 'import';
-use My::DnsRequests qw( dns_request );
+use My::DnsRequests            qw( dns_request );
+use My::DnsRequests::Constants qw( $NO_RESPONSE );
 
 our @EXPORT_OK = qw(
   eq_domain
@@ -98,7 +99,7 @@ sub lookup {
 
             $qname = lc $qname =~ s/([^.])$/$1./r;
 
-            if ( $result ne $My::DnsRequests::NO_RESPONSE ) {
+            if ( $result ne $NO_RESPONSE ) {
                 for my $rr ( $result->answer ) {
                     if ( eq_domain( $rr->owner, $qname ) && uc $rr->type eq $qtype ) {
                         $scheduler->produce( $rr->address );
@@ -107,8 +108,8 @@ sub lookup {
             }
         };
 
-        $scheduler->consume( dns_request( server_ip => '9.9.9.9', qname => $qname, qtype => 'A',    rd => 1 ), sub { $handle->( 'A',    shift ) } );
-        $scheduler->consume( dns_request( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA', rd => 1 ), sub { $handle->( 'AAAA', shift ) } );
+        $scheduler->flatmap( dns_request( server_ip => '9.9.9.9', qname => $qname, qtype => 'A',    rd => 1 ), sub { $handle->( 'A',    shift ) } );
+        $scheduler->flatmap( dns_request( server_ip => '9.9.9.9', qname => $qname, qtype => 'AAAA', rd => 1 ), sub { $handle->( 'AAAA', shift ) } );
 
         return;
     };
@@ -175,13 +176,13 @@ sub get_parent_ns_ips {
             my $zone_name_ns_query  = dns_request( server_ip => $server_address, qname => $zone_name, qtype => 'NS' );
 
             # Step 5.4
-            $scheduler->consume(
+            $scheduler->flatmap(
                 $zone_name_soa_query,
                 sub {
                     my ( $soa_response ) = @_;
 
                     # Step 5.5 part 1/2
-                    if ( !defined $soa_response || $soa_response->header->rcode ne 'NOERROR' || !$soa_response->header->aa ) {
+                    if ( $soa_response eq $NO_RESPONSE || $soa_response->header->rcode ne 'NOERROR' || !$soa_response->header->aa ) {
                         return;
                     }
 
@@ -192,7 +193,7 @@ sub get_parent_ns_ips {
                     }
 
                     # Step 5.6
-                    $scheduler->consume(
+                    $scheduler->flatmap(
                         $zone_name_ns_query,
                         sub {
                             my ( $ns_response ) = @_;
@@ -210,7 +211,7 @@ sub get_parent_ns_ips {
 
             # Step 5.7 part 1/2
             # Step 5.11.5.2.3 part 1/2
-            if ( !defined $ns_response || $ns_response->header->rcode ne 'NOERROR' || !$ns_response->header->aa ) {
+            if ( $ns_response eq $NO_RESPONSE || $ns_response->header->rcode ne 'NOERROR' || !$ns_response->header->aa ) {
                 return;
             }
 
@@ -248,7 +249,7 @@ sub get_parent_ns_ips {
                     # Step 5.9
                     # Step 5.11.5.2.5
                     # Step 5.11.6.2.2
-                    $scheduler->consume(
+                    $scheduler->flatmap(
                         lookup( '.', \@root_ns_ips, $rr->nsdname ),
                         sub {
                             my ( $addr ) = @_;
@@ -286,13 +287,13 @@ sub get_parent_ns_ips {
             my $intermediate_soa_query = dns_request( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'SOA' );
 
             # Step 5.11.3
-            $scheduler->consume(
+            $scheduler->flatmap(
                 $intermediate_soa_query,
                 sub {
                     my ( $soa_response ) = @_;
 
                     # Step 5.11.4
-                    if ( !defined $soa_response ) {
+                    if ( $soa_response eq $NO_RESPONSE ) {
                         return;
                     }
 
@@ -314,7 +315,7 @@ sub get_parent_ns_ips {
                         my $intermediate_ns_query = dns_request( server_ip => $server_address, qname => $intermediate_query_name, qtype => 'NS' );
 
                         # Step 5.11.5.2.2
-                        $scheduler->consume(
+                        $scheduler->flatmap(
                             $intermediate_ns_query,
                             sub {
                                 my ( $ns_response ) = @_;
@@ -405,7 +406,7 @@ sub get_delegation {
         my %aa_name_servers;
 
         # Step 3 and 7
-        my $actionid = $scheduler->consume(
+        my $actionid = $scheduler->flatmap(
             get_parent_ns_ips( $child_zone, $root_name_servers, %$undelegated_data != 0 ),
             sub {
                 my ( $parent_ns ) = @_;
@@ -414,13 +415,13 @@ sub get_delegation {
                 my $ns_query = dns_request( server_ip => $parent_ns, qname => $child_zone, qtype => 'NS' );
 
                 # Step 7.1
-                $scheduler->consume(
+                $scheduler->flatmap(
                     $ns_query,
                     sub {
                         my ( $ns_response ) = @_;
 
                         # Step 7.2
-                        if ( !defined $ns_response || !is_valid_response( $ns_response ) || $ns_response->header->rcode ne 'NOERROR' ) {
+                        if ( $ns_response eq $NO_RESPONSE || !is_valid_response( $ns_response ) || $ns_response->header->rcode ne 'NOERROR' ) {
                             return;
                         }
 
@@ -479,7 +480,7 @@ sub get_delegation {
                                         if ( !@addrs ) {
 
                                             # Step 7.4.4.1, 7.4.4.2 nad 7.4.4.3
-                                            $scheduler->consume(
+                                            $scheduler->flatmap(
                                                 lookup( $child_zone, [$parent_ns], $rr->nsdname ),
                                                 sub {
                                                     my ( $addr ) = @_;
@@ -499,7 +500,7 @@ sub get_delegation {
         );
 
         # Step 9
-        $scheduler->defer(
+        $scheduler->after(
             [$actionid],
             sub {
                 if ( !%delegation_name_servers ) {
@@ -528,7 +529,7 @@ sub get_oob_ips {
             }
         }
         else {
-            $scheduler->consume(
+            $scheduler->flatmap(
                 lookup( '.', $root_name_servers, $nsdname ),
                 sub {
                     my ( $addr ) = @_;
@@ -546,7 +547,7 @@ sub get_del_ns_names_and_ips {
         my ( $scheduler ) = @_;
 
         # Step 1
-        $scheduler->consume(
+        $scheduler->flatmap(
             get_delegation( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;
@@ -562,7 +563,7 @@ sub get_del_ns_names_and_ips {
                     if ( !is_in_bailiwick( $nsdname, $child_zone ) ) {
 
                         # Step 5
-                        $scheduler->consume(
+                        $scheduler->flatmap(
                             get_oob_ips( $nsdname, $root_name_servers, $undelegated_data ),
                             sub {
                                 my ( $addr ) = @_;
@@ -584,7 +585,7 @@ sub get_del_ns_names {
     return sub {
         my ( $scheduler ) = @_;
 
-        $scheduler->consume(
+        $scheduler->flatmap(
             get_delegation( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;
@@ -603,7 +604,7 @@ sub get_del_ns_ips {
     return sub {
         my ( $scheduler ) = @_;
 
-        $scheduler->consume(
+        $scheduler->flatmap(
             get_del_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;
@@ -624,17 +625,17 @@ sub get_zone_ns_names {
 
         my %nsdnames;
 
-        $scheduler->consume(
+        $scheduler->flatmap(
             get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $addr ) = @_;
 
-                $scheduler->consume(
+                $scheduler->flatmap(
                     dns_request( server_ip => $addr, qname => $child_zone, qtype => 'NS' ),
                     sub {
                         my ( $ns_response ) = @_;
 
-                        if ( !defined $ns_response || !$ns_response->header->aa ) {
+                        if ( $ns_response eq $NO_RESPONSE || !$ns_response->header->aa ) {
                             return;
                         }
 
@@ -664,7 +665,7 @@ sub get_ib_addr_in_zone {
 
             state %seen;
 
-            $scheduler->consume(
+            $scheduler->flatmap(
                 lookup( $child_zone, [$server_ip], $nsdname ),
                 sub {
                     my ( $addr ) = @_;
@@ -681,7 +682,7 @@ sub get_ib_addr_in_zone {
         # Call $query_addresses for the cross product of Get-Del-NS-IPs and the in-bailiwick names from Get-Zone-NS-Names
         my @zone_ns_names;
         my @del_ns_ips;
-        $scheduler->consume(
+        $scheduler->flatmap(
             get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname ) = @_;
@@ -697,7 +698,7 @@ sub get_ib_addr_in_zone {
                 }
             }
         );
-        $scheduler->consume(
+        $scheduler->flatmap(
             get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $server_ip ) = @_;
@@ -718,7 +719,7 @@ sub get_zone_ns_names_and_ips {
     return sub {
         my ( $scheduler ) = @_;
 
-        $scheduler->consume(
+        $scheduler->flatmap(
             get_ib_addr_in_zone( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;
@@ -727,7 +728,7 @@ sub get_zone_ns_names_and_ips {
             }
         );
 
-        $scheduler->consume(
+        $scheduler->flatmap(
             get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname ) = @_;
@@ -735,7 +736,7 @@ sub get_zone_ns_names_and_ips {
                 if ( !is_in_bailiwick( $nsdname, $child_zone ) ) {
                     $scheduler->produce( $nsdname );
 
-                    $scheduler->consume(
+                    $scheduler->flatmap(
                         get_oob_ips( $nsdname, $root_name_servers, $undelegated_data ),
                         sub {
                             my ( $addr ) = @_;
@@ -756,7 +757,7 @@ sub get_zone_ns_ips {
     return sub {
         my ( $scheduler ) = @_;
 
-        $scheduler->consume(
+        $scheduler->flatmap(
             get_zone_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
                 my ( $nsdname, @addr ) = @_;

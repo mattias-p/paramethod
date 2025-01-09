@@ -1,3 +1,4 @@
+
 =head1 NAME
 
 My::DnsRequests::ExecutorDiagnostics - Wraps an executor and prints diagnostics to STDERR.
@@ -8,8 +9,9 @@ package My::DnsRequests::ExecutorDiagnostics;
 use 5.016;
 use warnings;
 
-use Carp qw( croak );
-use Scalar::Util qw( blessed );
+use Carp                       qw( croak );
+use My::DnsRequests::Constants qw( $NO_RESPONSE );
+use Scalar::Util               qw( blessed );
 
 use parent 'My::Tasks::Executor';
 
@@ -27,8 +29,10 @@ sub new {
     $stats_ref //= \my $dummy;
 
     $$stats_ref = {
-        requests  => 0,
-        responses => 0,
+        requests     => 0,
+        responses    => 0,
+        no_responses => 0,
+        cancelled    => 0,
     };
 
     my $obj = {
@@ -65,16 +69,22 @@ sub submit {
 sub await {
     my ( $self ) = @_;
 
-    my ( $op, $id, $command, $response ) = $self->{_inner}->await;
+    my ( $id, $command, $result ) = $self->{_inner}->await;
 
-    if ( defined $response ) {
-        $self->{_stats}{responses}++;
+    if ( defined $result ) {
+        if ( $result->[0] eq $NO_RESPONSE ) {
+            $self->{_stats}{no_responses}++;
+            printf STDERR "no response from %s on %s query\n", $command->server_ip, $command->qtype;
+        }
+        else {
+            $self->{_stats}{responses}++;
+        }
     }
     else {
-        printf STDERR "no response from %s on %s query\n", $command->server_ip, $command->qtype;
+        $self->{_stats}{cancelled}++;
     }
 
-    return ( $op, $id, $command, $response );
+    return ( $id, $command, $result );
 }
 
 1;

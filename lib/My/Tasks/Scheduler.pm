@@ -9,7 +9,7 @@ package My::Tasks::Scheduler;
 use 5.016;
 use warnings;
 
-use Carp qw( croak );
+use Carp         qw( croak );
 use Scalar::Util qw( blessed looks_like_number );
 
 =head1 CONSTRUCTORS
@@ -74,7 +74,7 @@ sub produce {
     return;
 }
 
-=head2 consume PRODUCER, CONSUMER
+=head2 flatmap PRODUCER, CONSUMER
 
 Schedule a consumer task with an attached producer.
 
@@ -82,12 +82,12 @@ Schedule a consumer task with an attached producer.
         my ( $scheduler ) = @_;
         ...
     };
-    $scheduler->consume( $coderef, sub {
+    $scheduler->flatmap( $coderef, sub {
         my ( @result ) = @_;
         ...
     });
 
-    $scheduler->consume( $command, sub {
+    $scheduler->flatmap( $command, sub {
         my ( @result ) = @_;
         ...
     });
@@ -102,7 +102,7 @@ Returns a task id.
 
 =cut
 
-sub consume {
+sub flatmap {
     my ( $self, $producer, $consumer ) = @_;
 
     if ( ref $consumer ne 'CODE' ) {
@@ -125,11 +125,11 @@ sub consume {
     croak "PRODUCER argument must be either a My::Tasks::Command or a coderef";
 }
 
-=head2 defer DEPENDENCIES, ACTION
+=head2 after DEPENDENCIES, ACTION
 
 Schedule an action task.
 
-    $scheduler->defer( \@dependencies, sub {
+    $scheduler->after( \@dependencies, sub {
         ...
     });
 
@@ -140,7 +140,7 @@ Returns a task id.
 
 =cut
 
-sub defer {
+sub after {
     my ( $self, $dependencies, $action ) = @_;
 
     if ( ref $dependencies ne 'ARRAY' ) {
@@ -173,18 +173,18 @@ sub run {
 
         last if !%{ $self->{_tasks} };
 
-        my ( $op, $taskid, undef, @result ) = $self->{_executor}->await;
+        my ( $taskid, undef, $result ) = $self->{_executor}->await;
 
         if ( !looks_like_number( $taskid ) ) {
-            croak "taskid must look like number";
+            croak sprintf "taskid (from %s) must look like number", ref $self->{_executor};
         }
 
-        if ( $op eq 'close' ) {
-            $self->_finalize( $taskid );
+        if ( defined $result ) {
+            $self->{_tasks}{$taskid}{result} = $result;
+            push @{ $self->{_pending} }, $taskid;
         }
         else {
-            $self->{_tasks}{$taskid}{result} = \@result;
-            push @{ $self->{_pending} }, $taskid;
+            $self->_finalize( $taskid );
         }
     }
 

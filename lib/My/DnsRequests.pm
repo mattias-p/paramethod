@@ -4,11 +4,8 @@ use warnings;
 
 use Exporter 'import';
 use My::DnsRequests::Command;
-use Readonly;
 
 our @EXPORT_OK = qw( dns_request );
-
-Readonly our $NO_RESPONSE => 'NO_RESPONSE';
 
 =head1 SUBROUTINES
 

@@ -1,3 +1,4 @@
+
 =head1 NAME
 
 My::Tasks::ExecutorCache - Wraps an executor and caches its results.
@@ -8,8 +9,8 @@ package My::Tasks::ExecutorCache;
 use 5.016;
 use warnings;
 
-use Carp qw( croak );
-use Scalar::Util qw( blessed );
+use Carp         qw( croak );
+use Scalar::Util qw( blessed looks_like_number );
 
 use parent 'My::Tasks::Executor';
 
@@ -25,10 +26,10 @@ sub new {
     my ( $class, $executor ) = @_;
 
     my $obj = {
-        _inner => $executor,
-        _cache => {},
+        _inner   => $executor,
+        _cache   => {},
         _pending => {},
-        _ready => [],
+        _ready   => [],
     };
 
     return bless $obj, $class;
@@ -48,19 +49,22 @@ When equivalent commands are seen, they're registered for immediate return from 
 sub submit {
     my ( $self, $id, $command ) = @_;
 
+    if ( !looks_like_number( $id ) ) {
+        croak "id must look like number";
+    }
+
     if ( !blessed $command || !$command->isa( 'My::Tasks::Command' ) ) {
         croak "command argument to submit() must be a My::Tasks::Command";
     }
 
-    if ( my $item = $self->{_cache}{$command} ) {
-        my ( $op, @result ) = @$item;
-        push @{ $self->{_ready} }, [ $op, $id, $command, @result ];
+    if ( my $result = $self->{_cache}{$command} ) {
+        push @{ $self->{_ready} }, [ $id, $command, $result ];
     }
     elsif ( exists $self->{_pending}{$command} ) {
         push @{ $self->{_pending}{$command} }, $id;
     }
     else {
-        $self->{_pending}{$command} = [ $id ];
+        $self->{_pending}{$command} = [$id];
         $self->{_inner}->submit( $id, $command );
     }
 
@@ -78,12 +82,12 @@ sub await {
     my ( $self ) = @_;
 
     if ( !@{ $self->{_ready} } ) {
-        my ( $op, undef, $command, @result ) = $self->{_inner}->await;
+        my ( undef, $command, $result ) = $self->{_inner}->await;
 
-        $self->{_cache}{$command} = [$op, @result];
+        $self->{_cache}{$command} = $result;
 
         for my $id ( @{ delete $self->{_pending}{$command} } ) {
-            push @{ $self->{_ready} }, [ $op, $id, $command, @result ];
+            push @{ $self->{_ready} }, [ $id, $command, $result ];
         }
     }
 

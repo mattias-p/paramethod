@@ -5,8 +5,8 @@ use warnings;
 use parent 'My::Tasks::Executor';
 use Carp qw(croak);
 use Net::DNS;
-use My::DnsRequests;
-use Scalar::Util qw( looks_like_number );
+use My::DnsRequests::Constants qw( $NO_RESPONSE );
+use Scalar::Util               qw( looks_like_number );
 
 sub new {
     my ( $class, %args ) = @_;
@@ -74,13 +74,12 @@ sub await {
         my $client = $self->{_clients}{$server_ip};
 
         if ( !$client->bgbusy( $handle ) ) {
-            my $result = $client->bgread( $handle );
-
-            $result //= $My::DnsRequest::NO_RESPONSE;
-
             splice @{ $self->{_pending} }, $self->{_index}, 1;
 
-            return 'return', $id, $command, $result;
+            my $result = $client->bgread( $handle );
+            $result //= $NO_RESPONSE;
+
+            return $id, $command, [$result];
         }
 
         $self->{_index}++;
