@@ -115,6 +115,20 @@ sub lookup {
     };
 }
 
+=head2 get_parent_ns_ips
+
+Produces these sets:
+
+=over 4
+
+=item ip IPADDR
+
+=item unresolvable
+
+=back
+
+=cut
+
 sub get_parent_ns_ips {
     my ( $child_zone, $root_name_servers, $is_undelegated ) = @_;
 
@@ -151,10 +165,12 @@ sub get_parent_ns_ips {
                                 # Instead of adding addresses to "Parent NS IP", they are produced from this task.
 
         # Step 4
+        my @root_actionids;
         $process_root_servers = sub {
             for my $nsdname ( sort keys %$root_name_servers ) {
                 for my $addr ( sort @{ $root_name_servers->{$nsdname} } ) {
-                    $handle_server->( $addr, '.' );
+                    my $taskid = $handle_server->( $addr, '.' );
+                    push @root_actionids, $taskid;
                 }
             }
         };
@@ -273,6 +289,7 @@ sub get_parent_ns_ips {
         };
 
         # $handle_intermediate implements the body of the inner loop of Get-Parent-NS-IP.
+        my $found_parent;
         $handle_intermediate = sub {
             my ( $server_address, $intermediate_query_name ) = @_;
 
@@ -305,7 +322,8 @@ sub get_parent_ns_ips {
                         if ( $intermediate_query_name eq $child_zone ) {
 
                             # Step 5.11.5.1.1 and 6
-                            $scheduler->produce( $server_address );
+                            $scheduler->produce( 'ip', $server_address );
+                            $found_parent = 1;
 
                             # Step 5.11.5.1.2
                             return;
@@ -333,7 +351,8 @@ sub get_parent_ns_ips {
                         if ( $intermediate_query_name eq $child_zone ) {
 
                             # Step 5.11.6.1.1 and 6
-                            $scheduler->produce( $server_address );
+                            $scheduler->produce( 'ip', $server_address );
+                            $found_parent = 1;
                         }
                         else {
 
@@ -365,8 +384,34 @@ sub get_parent_ns_ips {
         };
 
         $process_root_servers->();
+
+        $scheduler->after(
+            \@root_actionids,
+            sub {
+                if ( !$found_parent ) {
+                    $scheduler->produce( 'unresolvable' );
+                }
+            }
+        );
+
     };
 }
+
+=head2 get_delegation
+
+Produces these sets:
+
+=over 4
+
+=item name DOMAIN
+
+=item ip DOMAIN IPADDR
+
+=item unresolvable
+
+=back
+
+=cut
 
 sub get_delegation {
     my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
@@ -379,9 +424,9 @@ sub get_delegation {
 
             # Step 1.1-1.6
             for my $nsdname ( sort keys %{$undelegated_data} ) {
-                $scheduler->produce( $nsdname );
+                $scheduler->produce( 'name', $nsdname );
                 for my $addr ( @{ $undelegated_data->{$nsdname} } ) {
-                    $scheduler->produce( $nsdname, $addr );
+                    $scheduler->produce( 'ip', $nsdname, $addr );
                 }
             }
 
@@ -392,9 +437,9 @@ sub get_delegation {
         # Step 2
         if ( eq_domain( $child_zone, '.' ) ) {
             for my $nsdname ( sort keys %{$root_name_servers} ) {
-                $scheduler->produce( $nsdname );
+                $scheduler->produce( 'name', $nsdname );
                 for my $addr ( @{ $root_name_servers->{$nsdname} } ) {
-                    $scheduler->produce( $nsdname, $addr );
+                    $scheduler->produce( 'ip', $nsdname, $addr );
                 }
             }
 
@@ -409,7 +454,15 @@ sub get_delegation {
         my $actionid = $scheduler->flatmap(
             get_parent_ns_ips( $child_zone, $root_name_servers, %$undelegated_data != 0 ),
             sub {
-                my ( $parent_ns ) = @_;
+                my ( $set, @params ) = @_;
+
+                # Step 4
+                if ( $set eq 'unresolvable' ) {
+                    $scheduler->produce( 'unresolvable' );
+                    return;
+                }
+
+                my ( $parent_ns ) = @params;
 
                 # Step 5
                 my $ns_query = dns_request( server_ip => $parent_ns, qname => $child_zone, qtype => 'NS' );
@@ -439,7 +492,7 @@ sub get_delegation {
                                 # Step 7.3.3 part 1/2 and 7.3.3.1
                                 if ( !exists $delegation_name_servers{ $rr->nsdname } ) {
                                     $delegation_name_servers{ $rr->nsdname } = {};
-                                    $scheduler->produce( $rr->nsdname );
+                                    $scheduler->produce( 'name', $rr->nsdname );
                                 }
 
                                 # Step 7.3.2 part 2/2
@@ -449,7 +502,7 @@ sub get_delegation {
                                     for my $addr ( @{ $glue{ $rr->nsdname } // [] } ) {
                                         if ( !exists $delegation_name_servers{ $rr->nsdname }{$addr} ) {
                                             $delegation_name_servers{ $rr->nsdname }{$addr} = 1;
-                                            $scheduler->produce( $rr->nsdname, $addr );
+                                            $scheduler->produce( 'ip', $rr->nsdname, $addr );
                                         }
                                     }
                                 }
@@ -505,9 +558,9 @@ sub get_delegation {
             sub {
                 if ( !%delegation_name_servers ) {
                     for my $nsdname ( sort keys %aa_name_servers ) {
-                        $scheduler->produce( $nsdname );
+                        $scheduler->produce( 'name', $nsdname );
                         for my $addr ( sort keys %{ $aa_name_servers{$nsdname} } ) {
-                            $scheduler->produce( $nsdname, $addr );
+                            $scheduler->produce( 'ip', $nsdname, $addr );
                         }
                     }
                 }
@@ -540,6 +593,22 @@ sub get_oob_ips {
     };
 }
 
+=head2 get_del_ns_names_and_ips
+
+Produces these sets:
+
+=over 4
+
+=item name DOMAIN
+
+=item ip DOMAIN IPADDR
+
+=item unresolvable
+
+=back
+
+=cut
+
 sub get_del_ns_names_and_ips {
     my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
@@ -550,15 +619,23 @@ sub get_del_ns_names_and_ips {
         $scheduler->flatmap(
             get_delegation( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
-                my ( $nsdname, @addr ) = @_;
+                my ( $set, @params ) = @_;
 
-                if ( @addr ) {
+                if ( $set eq 'unresolvable' ) {
+                    $scheduler->produce( 'unresolvable' );
+                    return;
+                }
+
+                if ( $set eq 'ip' ) {
+                    my ( $nsdname, $addr ) = @params;
 
                     # Step 6 variant 1/2 and 7
-                    $scheduler->produce( $nsdname, @addr );
+                    $scheduler->produce( 'ip', $nsdname, $addr );
                 }
                 else {
-                    $scheduler->produce( $nsdname );
+                    my ( $nsdname ) = @params;
+
+                    $scheduler->produce( 'name', $nsdname );
 
                     if ( !is_in_bailiwick( $nsdname, $child_zone ) ) {
 
@@ -569,7 +646,7 @@ sub get_del_ns_names_and_ips {
                                 my ( $addr ) = @_;
 
                                 # Step 6 variant 2/2 and 7
-                                $scheduler->produce( $nsdname, $addr );
+                                $scheduler->produce( 'ip', $nsdname, $addr );
                             }
                         );
                     }
@@ -579,6 +656,20 @@ sub get_del_ns_names_and_ips {
     }
 }
 
+=head2 get_del_ns_names
+
+Produces these sets:
+
+=over 4
+
+=item name DOMAIN
+
+=item unresolvable
+
+=back
+
+=cut
+
 sub get_del_ns_names {
     my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
 
@@ -586,17 +677,36 @@ sub get_del_ns_names {
         my ( $scheduler ) = @_;
 
         $scheduler->flatmap(
-            get_delegation( $child_zone, $root_name_servers, $undelegated_data ),
+            get_del_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
-                my ( $nsdname, @addr ) = @_;
+                my ( $set, @params ) = @_;
 
-                if ( !@addr ) {
-                    $scheduler->produce( $nsdname );
+                if ( $set eq 'unresolvable' ) {
+                    $scheduler->produce( 'unresolvable' );
+                }
+                elsif ( $set eq 'name' ) {
+                    my ( $nsdname ) = @params;
+
+                    $scheduler->produce( 'name', $nsdname );
                 }
             }
         );
     }
 }
+
+=head2 get_del_ns_ips
+
+Produces these sets:
+
+=over 4
+
+=item ip IPADDR
+
+=item unresolvable
+
+=back
+
+=cut
 
 sub get_del_ns_ips {
     my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
@@ -607,15 +717,30 @@ sub get_del_ns_ips {
         $scheduler->flatmap(
             get_del_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
-                my ( $nsdname, @addr ) = @_;
+                my ( $set, @params ) = @_;
 
-                if ( @addr ) {
-                    $scheduler->produce( @addr );
+                if ( $set eq 'ip' ) {
+                    my ( undef, $addr ) = @params;
+                    $scheduler->produce( 'ip', $addr );
                 }
             }
         );
     }
 }
+
+=head2 get_zone_ns_names
+
+Produces these sets:
+
+=over 4
+
+=item name DOMAIN
+
+=item unresolvable
+
+=back
+
+=cut
 
 sub get_zone_ns_names {
     my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
@@ -628,7 +753,14 @@ sub get_zone_ns_names {
         $scheduler->flatmap(
             get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
-                my ( $addr ) = @_;
+                my ( $set, @params ) = @_;
+
+                if ( $set eq 'unresolvable' ) {
+                    $scheduler->produce( 'unresolvable' );
+                    return;
+                }
+
+                my ( $addr ) = @params;
 
                 $scheduler->flatmap(
                     dns_request( server_ip => $addr, qname => $child_zone, qtype => 'NS' ),
@@ -643,7 +775,7 @@ sub get_zone_ns_names {
                             if ( $rr->type eq 'NS' && eq_domain( $rr->owner, $child_zone ) ) {
                                 if ( !exists $nsdnames{ $rr->nsdname } ) {
                                     $nsdnames{ $rr->nsdname } = 1;
-                                    $scheduler->produce( $rr->nsdname );
+                                    $scheduler->produce( 'name', $rr->nsdname );
                                 }
                             }
                         }
@@ -653,6 +785,22 @@ sub get_zone_ns_names {
         );
     }
 }
+
+=head2 get_ib_addr_in_zone
+
+Produces these sets:
+
+=over 4
+
+=item name DOMAIN
+
+=item ip DOMAIN IPADDR
+
+=item unresolvable
+
+=back
+
+=cut
 
 sub get_ib_addr_in_zone {
     my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
@@ -673,24 +821,50 @@ sub get_ib_addr_in_zone {
                     if ( !exists $seen{$addr} ) {
                         $seen{$addr} = 1;
 
-                        $scheduler->produce( $nsdname, $addr );
+                        $scheduler->produce( 'ip', $nsdname, $addr );
                     }
                 }
             );
         };
 
-        # Call $query_addresses for the cross product of Get-Del-NS-IPs and the in-bailiwick names from Get-Zone-NS-Names
+        # Call $lookup_nsdname for the cross product of Get-Del-NS-IPs and the
+        # in-bailiwick names from Get-Zone-NS-Names
         my @zone_ns_names;
         my @del_ns_ips;
         $scheduler->flatmap(
+            get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data ),
+            sub {
+                my ( $set, @params ) = @_;
+
+                if ( $set eq 'unresolvable' ) {
+                    $scheduler->produce( 'unresolvable' );
+                    return;
+                }
+
+                my ( $server_ip ) = @params;
+
+                push @del_ns_ips, $server_ip;
+
+                for my $nsdname ( @zone_ns_names ) {
+                    $lookup_nsdname->( 'ip', $server_ip, $nsdname );
+                }
+            }
+        );
+        $scheduler->flatmap(
             get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
-                my ( $nsdname ) = @_;
+                my ( $set, @params ) = @_;
+
+                if ( $set eq 'unresolvable' ) {
+                    return;
+                }
+
+                my ( $nsdname ) = @params;
 
                 if ( is_in_bailiwick( $nsdname, $child_zone ) ) {
                     push @zone_ns_names, $nsdname;
 
-                    $scheduler->produce( $nsdname );
+                    $scheduler->produce( 'name', $nsdname );
 
                     for my $server_ip ( @del_ns_ips ) {
                         $lookup_nsdname->( $server_ip, $nsdname );
@@ -698,20 +872,24 @@ sub get_ib_addr_in_zone {
                 }
             }
         );
-        $scheduler->flatmap(
-            get_del_ns_ips( $child_zone, $root_name_servers, $undelegated_data ),
-            sub {
-                my ( $server_ip ) = @_;
-
-                push @del_ns_ips, $server_ip;
-
-                for my $nsdname ( @zone_ns_names ) {
-                    $lookup_nsdname->( $server_ip, $nsdname );
-                }
-            }
-        );
     }
 }
+
+=head2 get_zone_ns_names_and_ips
+
+Produces these sets:
+
+=over 4
+
+=item name DOMAIN
+
+=item ip DOMAIN IPADDR
+
+=item unresolvable
+
+=back
+
+=cut
 
 sub get_zone_ns_names_and_ips {
     my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
@@ -722,34 +900,56 @@ sub get_zone_ns_names_and_ips {
         $scheduler->flatmap(
             get_ib_addr_in_zone( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
-                my ( $nsdname, @addr ) = @_;
+                my ( $set, @params ) = @_;
 
-                $scheduler->produce( $nsdname, @addr );
+                if ( $set ne 'unresolvable' ) {
+                    $scheduler->produce( $set, @params );
+                }
             }
         );
 
         $scheduler->flatmap(
             get_zone_ns_names( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
-                my ( $nsdname ) = @_;
+                my ( $set, @params ) = @_;
+
+                if ( $set eq 'unresolvable' ) {
+                    $scheduler->produce( 'unresolvable' );
+                    return;
+                }
+
+                my ( $nsdname ) = @params;
 
                 if ( !is_in_bailiwick( $nsdname, $child_zone ) ) {
-                    $scheduler->produce( $nsdname );
+                    $scheduler->produce( 'name', $nsdname );
 
                     $scheduler->flatmap(
                         get_oob_ips( $nsdname, $root_name_servers, $undelegated_data ),
                         sub {
                             my ( $addr ) = @_;
 
-                            $scheduler->produce( $nsdname, $addr );
+                            $scheduler->produce( 'ip', $nsdname, $addr );
                         }
                     );
-
                 }
             }
         );
     };
 }
+
+=head2 get_zone_ns_ips
+
+Produces these sets:
+
+=over 4
+
+=item ip IPADDR
+
+=item unresolvable
+
+=back
+
+=cut
 
 sub get_zone_ns_ips {
     my ( $child_zone, $root_name_servers, $undelegated_data ) = @_;
@@ -760,10 +960,15 @@ sub get_zone_ns_ips {
         $scheduler->flatmap(
             get_zone_ns_names_and_ips( $child_zone, $root_name_servers, $undelegated_data ),
             sub {
-                my ( $nsdname, @addr ) = @_;
+                my ( $set, @params ) = @_;
 
-                if ( @addr ) {
-                    $scheduler->produce( @addr );
+                if ( $set eq 'unresolvable' ) {
+                    $scheduler->produce( 'unresolvable' );
+                    return;
+                }
+                elsif ( $set eq 'ip' ) {
+                    my ( undef, $addr ) = @params;
+                    $scheduler->produce( 'ip', $addr );
                 }
             }
         );
