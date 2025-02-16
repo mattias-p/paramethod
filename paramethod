@@ -2,33 +2,28 @@
 use 5.016;
 use warnings;
 
+use File::Slurp  qw( read_file write_file );
 use Getopt::Long qw( :config gnu_getopt );
-use My::Tasks::ExecutorCache;
-use My::Tasks::ExecutorProgress;
-use My::Tasks::Scheduler;
-use My::DnsRequests::BgExecutor;
-use My::DnsRequests::ExecutorDiagnostics;
-use My::DnsRequests::ExecutorFilter;
-use My::DnsRequests::FgExecutor;
-use My::TestMethods::MethodsV2 qw(
-  get_parent_ns_ips
-  get_delegation
-  get_del_ns_names_and_ips
-  get_del_ns_names
-  get_del_ns_ips
-  get_zone_ns_names
-  get_ib_addr_in_zone
-  get_zone_ns_names_and_ips
-  get_zone_ns_ips
-);
+use My::DnsMethods::Zone;
+use My::DnsRequest::BackgroundHandler;
+use My::DnsRequest::ForegroundHandler;
+use My::DnsRequest::HandlerDiagnostics;
+use My::DnsRequest::HandlerFilter;
+use My::DnsRequest::HandlerLogger;
+use My::Streams::DieHandler;
+use My::Streams::HandlerCache;
+use My::Streams::HandlerProgress;
 use Pod::Usage;
 use Readonly;
+use CBOR::XS    qw( encode_cbor decode_cbor );
 use Time::HiRes qw( time );
 
 my $opt_help         = 0;
 my $opt_verbose      = 0;
 my $opt_ipv4         = 1;
 my $opt_ipv6         = 1;
+my $opt_progress     = 0;
+my $opt_save         = '';
 my $opt_strategy     = 'bg';
 my $opt_timeout      = 5;
 my $opt_list_methods = 0;
@@ -39,11 +34,13 @@ sub output {
 
     my ( $format, @args ) = @_;
 
+    my $clear = $opt_progress ? ' ' x ( 2 * 4 + 1 ) . "\r" : '';
+
     if ( $opt_verbose ) {
-        printf "%8.2fs  $format\n", time() - $begin_time, @args;
+        printf "%s%6.2fs\t$format\n", $clear, time() - $begin_time, @args;
     }
     else {
-        printf "$format\n", @args;
+        printf "%s$format\n", $clear, @args;
     }
 
     return;
@@ -52,94 +49,41 @@ sub output {
 sub output_fields {
     my @fields = @_;
 
-    output( "%s", join '  ', @fields );
+    output( "%s", join "\t", @fields );
 
     return;
 }
-
-Readonly my %ROOT_NAME_SERVERS => (
-    'a.root-servers.net.' => [ '198.41.0.4',     '2001:503:ba3e::2:30' ],
-    'b.root-servers.net.' => [ '170.247.170.2',  '2801:1b8:10::b' ],
-    'c.root-servers.net.' => [ '192.33.4.12',    '2001:500:2::c' ],
-    'd.root-servers.net.' => [ '199.7.91.13',    '2001:500:2d::d' ],
-    'e.root-servers.net.' => [ '192.203.230.10', '2001:500:a8::e' ],
-    'f.root-servers.net.' => [ '192.5.5.241',    '2001:500:2f::f' ],
-    'g.root-servers.net.' => [ '192.112.36.4',   '2001:500:12::d0d' ],
-    'h.root-servers.net.' => [ '198.97.190.53',  '2001:500:1::53' ],
-    'i.root-servers.net.' => [ '192.36.148.17',  '2001:7fe::53' ],
-    'j.root-servers.net.' => [ '192.58.128.30',  '2001:503:c27::2:30' ],
-    'k.root-servers.net.' => [ '193.0.14.129',   '2001:7fd::1' ],
-    'l.root-servers.net.' => [ '199.7.83.42',    '2001:500:9f::42' ],
-    'm.root-servers.net.' => [ '202.12.27.33',   '2001:dc3::35' ],
-);
-
-Readonly my %METHOD_PRODUCERS => (
-    'get-parent-ns-ips' => sub {
-        my ( $domain ) = @_;
-        return get_parent_ns_ips( $domain, \%ROOT_NAME_SERVERS, 0 );
-    },
-    'get-delegation' => sub {
-        my ( $domain ) = @_;
-        return get_delegation( $domain, \%ROOT_NAME_SERVERS, {} );
-    },
-    'get-del-ns-names-and-ips' => sub {
-        my ( $domain ) = @_;
-        return get_del_ns_names_and_ips( $domain, \%ROOT_NAME_SERVERS, {} );
-    },
-    'get-del-ns-names' => sub {
-        my ( $domain ) = @_;
-        return get_del_ns_names( $domain, \%ROOT_NAME_SERVERS, {} );
-    },
-    'get-del-ns-ips' => sub {
-        my ( $domain ) = @_;
-        return get_del_ns_ips( $domain, \%ROOT_NAME_SERVERS, {} );
-    },
-    'get-zone-ns-names' => sub {
-        my ( $domain ) = @_;
-        return get_zone_ns_names( $domain, \%ROOT_NAME_SERVERS, {} );
-    },
-    'get-ib-addr-in-zone' => sub {
-        my ( $domain ) = @_;
-        return get_ib_addr_in_zone( $domain, \%ROOT_NAME_SERVERS, {} );
-    },
-    'get-zone-ns-names-and-ips' => sub {
-        my ( $domain ) = @_;
-        return get_zone_ns_names_and_ips( $domain, \%ROOT_NAME_SERVERS, {} );
-    },
-    'get-zone-ns-ips' => sub {
-        my ( $domain ) = @_;
-        return get_zone_ns_ips( $domain, \%ROOT_NAME_SERVERS, {} );
-    },
-);
 
 GetOptions(
     'help|h'       => \$opt_help,
     'list-methods' => \$opt_list_methods,
     'ipv4!'        => \$opt_ipv4,
     'ipv6!'        => \$opt_ipv6,
+    'progress|p!'  => \$opt_progress,
+    'save=s'       => \$opt_save,
     'strategy|s=s' => \$opt_strategy,
     'timeout|t=i'  => \$opt_timeout,
-    'verbose|v!'   => \$opt_verbose,
+    'verbose|v+'   => \$opt_verbose,
 ) or pod2usage( 2 );
 
 pod2usage( 1 ) if $opt_help;
 
 if ( $opt_list_methods ) {
-    for my $method ( sort keys %METHOD_PRODUCERS ) {
+    for my $method ( sort keys %My::DnsMethods::Zone::DNS_METHODS ) {
         say $method;
     }
 
     exit 0;
 }
 
-if ( $opt_strategy !~ /^(bg|fg)$/ ) {
+if ( $opt_strategy !~ /^(bg|fg|restore=.*)$/ ) {
     pod2usage( "invalid --strategy argument" );
 }
 
 my $method = shift @ARGV // pod2usage( "METHOD not specified" );
 my $domain = shift @ARGV // pod2usage( "DOMAIN not specified" );
 
-if ( !exists $METHOD_PRODUCERS{$method} ) {
+if ( !exists $My::DnsMethods::Zone::DNS_METHODS{$method} ) {
     pod2usage( "unrecognized METHOD" );
 }
 
@@ -147,43 +91,88 @@ if ( @ARGV ) {
     pod2usage( "too many arguments" );
 }
 
-my $executor;
+my %request_cache;
+my $handler;
 if ( $opt_strategy eq 'bg' ) {
-    $executor = My::DnsRequests::BgExecutor->new( timeout => $opt_timeout );
+    $handler = My::DnsRequest::BackgroundHandler->new( timeout => $opt_timeout );
+}
+elsif ( $opt_strategy eq 'fg' ) {
+    $handler = My::DnsRequest::ForegroundHandler->new( timeout => $opt_timeout );
 }
 else {
-    $executor = My::DnsRequests::FgExecutor->new( timeout => $opt_timeout );
+    $handler = My::Streams::DieHandler->new( 'dns-request' );
+
+    my ( undef, $file ) = split qr/=/, $opt_strategy, 2;
+
+    my $text    = read_file( $file );
+    my $decoded = decode_cbor( $text );
+
+    %request_cache = $decoded->%*;
+}
+
+if ( $opt_progress ) {
+    $handler = My::Streams::HandlerProgress->new( $handler );
 }
 
 my $diag_stats;
-if ( $opt_verbose ) {
-    $executor = My::Tasks::ExecutorProgress->new( $executor );
-    $executor = My::DnsRequests::ExecutorDiagnostics->new( $executor, \$diag_stats );
+if ( $opt_verbose >= 2 ) {
+    $handler = My::DnsRequest::HandlerLogger->new( $handler );
+}
+if ( $opt_verbose >= 1 ) {
+    $handler = My::DnsRequest::HandlerDiagnostics->new( $handler, \$diag_stats );
 }
 
-$executor = My::Tasks::ExecutorCache->new( $executor );
+$handler = My::Streams::HandlerCache->new( $handler, \%request_cache );
 
 if ( !$opt_ipv4 || !$opt_ipv6 ) {
-    $executor = My::DnsRequests::ExecutorFilter->new( $executor, ipv4 => $opt_ipv4, ipv6 => $opt_ipv6 );
+    $handler = My::DnsRequest::HandlerFilter->new( $handler, ipv4 => $opt_ipv4, ipv6 => $opt_ipv6 );
 }
-
-my $scheduler = My::Tasks::Scheduler->new( $executor, \my $sched_stats );
 
 $begin_time = time();
 if ( $opt_verbose ) {
     output( "; starting" );
 }
 
-my $producer = $METHOD_PRODUCERS{$method}->( $domain );
-$scheduler->flatmap( $producer, \&output_fields );
+my $stream = My::DnsMethods::Zone->new( child_zone => $domain )    #
+  ->dns_method( $method );
 
-$scheduler->run;
+eval {
+    $stream->traverse( \&output_fields, $handler );
+    if ( $opt_verbose ) {
+        output( "; done ($diag_stats->{requests} requests)" );
+    }
+};
 
-if ( $opt_verbose ) {
-    output( "; done ($diag_stats->{requests} requests, $sched_stats->{tasks} tasks)" );
+my $err = $@;
+
+if ( $opt_save ) {
+    my $text = encode_cbor \%request_cache;
+    write_file $opt_save, $text;
+}
+
+if ( $@ ) {
+    die $@;
 }
 
 exit 0;
+
+sub Net::DNS::Packet::FREEZE {
+    my ( $self, $serialiser ) = @_;
+
+    return $self->encode;
+}
+
+sub Net::DNS::Packet::THAW {
+    my ( $class, $serialiser, $encoded ) = @_;
+
+    return Net::DNS::Packet->decode( \$encoded );
+}
+
+sub Net::DNS::Packet::TO_JSON {
+    my ( $self ) = @_;
+
+    return $self->encode;
+}
 
 =head1 SYNOPSIS
 
@@ -244,7 +233,11 @@ Must be a positive number.
 
 =item -v, --verbose
 
-Include timings, progress and diagnostics in the output.
+Include more details in the output.
+
+If specified at least once, timings, progress and statistics summary are included.
+
+If specified at least twice, sent DNS requests are also included.
 
 Default: disabled
 
